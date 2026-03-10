@@ -7,3 +7,21 @@ dist/
 build/
 dist_electron/
 dist_electron.zip
+
+# Node modules
+node_modules/
+
+# Backend uploads
+backend/uploads/
+
+# Executables
+backend/*.exe
+
+# Env files
+*.env
+
+# Large media
+*.mp4
+*.mov
+*.zip
+*.rar

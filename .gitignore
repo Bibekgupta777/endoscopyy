@@ -25,3 +25,7 @@ backend/*.exe
 *.mov
 *.zip
 *.rar
+
+echo "dist_electron/"
+
+*.exe

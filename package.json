@@ -1,0 +1,54 @@
+{
+  "name": "endo-sys-recorder",
+  "version": "1.0.0",
+  "description": "Endoscopy System Recorder",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "npm run build:frontend && electron-builder",
+    "build:frontend": "cd frontend && npm run build",
+    "dist": "npm run build:frontend && electron-builder",
+    "dist:win": "npm run build:frontend && electron-builder --win"
+  },
+  "build": {
+    "appId": "com.endosys.recorder",
+    "productName": "Endo-Sys Recorder",
+    "directories": {
+      "output": "dist_electron"
+    },
+    "files": [
+      "main.js",
+      "frontend/dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "backend/",
+        "to": "backend/",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "frontend/public/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^27.3.11",
+    "electron-builder": "^24.13.3",
+    "electron-is-dev": "^3.0.1",
+    "wait-on": "^9.0.3"
+  }
+}

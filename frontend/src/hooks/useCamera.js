@@ -1,120 +1,115 @@
 import { useState, useRef, useCallback } from 'react';
+import toast from 'react-hot-toast';
 
 export const useCamera = () => {
-  // --- States ---
-  const [stream, setStream] = useState(null);
+  const videoRef = useRef(null);
   const [devices, setDevices] = useState([]);
   const [activeDeviceId, setActiveDeviceId] = useState('');
+  const [stream, setStream] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
-
-  // --- Refs ---
-  const videoRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
 
-  // --- 1. Detect all cameras and get labels ---
-  const initDevices = async () => {
+  // 1. Find all Cameras
+  const initDevices = useCallback(async () => {
     try {
-      // First request permission so labels (e.g., "USB Capture Card") become visible
-      const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
-      tempStream.getTracks().forEach((t) => t.stop());
-
-      // Get list of devices
+      await navigator.mediaDevices.getUserMedia({ video: true });
       const allDevices = await navigator.mediaDevices.enumerateDevices();
-      const videoInputs = allDevices.filter((d) => d.kind === 'videoinput');
-      
-      setDevices(videoInputs);
+      const videoDevices = allDevices.filter(device => device.kind === 'videoinput');
+      setDevices(videoDevices);
 
-      // Default to the first camera if nothing is selected
-      if (videoInputs.length > 0 && !activeDeviceId) {
-        setActiveDeviceId(videoInputs[0].deviceId);
+      // Auto-select the last device (usually the USB Capture Card)
+      if (videoDevices.length > 0) {
+        setActiveDeviceId(videoDevices[videoDevices.length - 1].deviceId);
       }
-    } catch (err) {
-      console.error("Camera Init Error:", err);
+    } catch (error) {
+      console.error("Camera error:", error);
+      toast.error("Camera access denied.");
     }
-  };
+  }, []);
 
-  // --- 2. Start the Live Feed ---
-  const startStream = async (deviceId) => {
-    // Stop any existing stream before starting a new one
+  // 2. Start the Video Feed (Pentax Optimized)
+  const startStream = useCallback(async (deviceId) => {
+    // Stop existing stream first
     if (stream) {
-      stream.getTracks().forEach((t) => t.stop());
+      stream.getTracks().forEach(track => track.stop());
     }
 
     try {
+      // We don't ask for HD resolution because the Pentax is SD (Standard Def).
+      // Asking for deviceId only is the safest way to connect.
       const constraints = {
-        video: {
+        video: { 
           deviceId: deviceId ? { exact: deviceId } : undefined,
-          width: { ideal: 1920 }, // High resolution for endoscopy
-          height: { ideal: 1080 },
-          frameRate: { ideal: 30 }
         }
       };
 
       const newStream = await navigator.mediaDevices.getUserMedia(constraints);
+
       setStream(newStream);
+      setActiveDeviceId(deviceId);
       
       if (videoRef.current) {
         videoRef.current.srcObject = newStream;
       }
-      setActiveDeviceId(deviceId);
-    } catch (err) {
-      console.error("Error starting camera stream:", err);
+    } catch (error) {
+      console.error("Stream error:", error);
+      toast.error("Failed to start video. Check USB Capture connection.");
     }
-  };
+  }, [stream]);
 
-  // --- 3. Stop the Feed ---
-  const stopStream = () => {
+  // 3. Stop Feed
+  const stopStream = useCallback(() => {
     if (stream) {
-      stream.getTracks().forEach((t) => t.stop());
+      stream.getTracks().forEach(track => track.stop());
       setStream(null);
     }
-  };
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  }, [stream]);
 
-  // --- 4. Recording Logic ---
-  const startRecording = () => {
+  // 4. Recording Logic
+  const startRecording = useCallback(() => {
     if (!stream) return;
-    
     chunksRef.current = [];
     
-    // Attempt to use high-quality codec, fallback to default webm if not supported
-    const options = { mimeType: 'video/webm;codecs=vp9' };
-    const actualType = MediaRecorder.isTypeSupported(options.mimeType) 
-      ? options.mimeType 
-      : 'video/webm';
+    // Use codecs supported by Electron/Chrome
+    const options = MediaRecorder.isTypeSupported('video/webm; codecs=vp9') 
+      ? { mimeType: 'video/webm; codecs=vp9' } 
+      : { mimeType: 'video/webm' };
 
-    const recorder = new MediaRecorder(stream, { mimeType: actualType });
+    const mediaRecorder = new MediaRecorder(stream, options);
     
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) {
-        chunksRef.current.push(e.data);
-      }
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunksRef.current.push(e.data);
     };
 
-    recorder.start(1000); // Record in 1-second chunks
-    mediaRecorderRef.current = recorder;
+    mediaRecorder.start();
     setIsRecording(true);
-  };
+    mediaRecorderRef.current = mediaRecorder;
+    toast.success("Recording Started");
+  }, [stream]);
 
-  const stopRecording = (onVideoReady) => {
+  const stopRecording = useCallback((onSave) => {
     if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
       mediaRecorderRef.current.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: 'video/webm' });
-        if (onVideoReady) {
-          onVideoReady(blob);
-        }
+        // Create file
+        const file = new File([blob], `endo_${Date.now()}.webm`, { type: 'video/webm' });
+        if (onSave) onSave(file);
+        setIsRecording(false);
+        toast.success("Recording Saved");
       };
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
     }
-  };
+  }, [isRecording]);
 
-  // --- Return all methods and states to the component ---
   return {
     videoRef,
-    stream,
     devices,
     activeDeviceId,
+    stream,
     isRecording,
     initDevices,
     startStream,

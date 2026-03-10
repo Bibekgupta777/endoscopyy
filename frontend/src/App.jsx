@@ -1,8 +1,8 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { Toaster } from 'react-hot-toast'; // Import Toast
+import { Routes, Route, Navigate } from 'react-router-dom'; // REMOVED: BrowserRouter as Router
+import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import MainLayout from './components/Layout/MainLayout'; // Import Layout
+import MainLayout from './components/Layout/MainLayout';
 
 import Login from './components/Auth/Login';
 import Dashboard from './components/Dashboard/Dashboard';
@@ -10,7 +10,10 @@ import CreateReport from './components/Reports/CreateReport';
 import ReportsList from './components/Reports/ReportsList';
 import PrintReport from './components/Reports/PrintReport';
 import PatientList from './components/Patients/PatientList';
+import PentaxLiveFeed from './components/Reports/PentaxLiveFeed';
 import Settings from './components/Settings/Settings';
+import CameraTest from './components/Camera/CameraTest';
+import PatientDetails from './components/Patients/PatientDetails';
 import FindingsPanel from './components/Reports/FindingsPanel';
 
 // Wrapper for protected routes to apply Layout
@@ -24,8 +27,8 @@ const PrivateRoute = ({ children }) => {
 
 function AppRoutes() {
   return (
-    <Router>
-      <Toaster position="top-right" /> {/* Toast Container */}
+    <>
+      <Toaster position="top-right" />
       <Routes>
         <Route path="/login" element={<Login />} />
         
@@ -40,8 +43,11 @@ function AppRoutes() {
         
         <Route path="/patients" element={<PrivateRoute><PatientList /></PrivateRoute>} />
         <Route path="/settings" element={<PrivateRoute><Settings /></PrivateRoute>} />
+        <Route path="/patients/:id" element={<PatientDetails />} />
+        <Route path="/camera-test" element={<CameraTest />} />
+        <Route path="/pentax-live-feed" element={<PentaxLiveFeed />} /> 
       </Routes>
-    </Router>
+    </>
   );
 }
 

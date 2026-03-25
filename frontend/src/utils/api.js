@@ -1,129 +1,49 @@
-
-
-// import axios from 'axios';
-
-// // 🔧 FIX: Use absolute URL. 
-// // Relative paths ('/api') fail in Electron Production because there is no proxy.
-// const BASE_URL = 'http://localhost:5000/api';
-
-// const api = axios.create({
-//   baseURL: BASE_URL
-//   // DO NOT set default Content-Type here
-//   // Axios will auto-set 'application/json' for objects
-//   // and 'multipart/form-data' for FormData
-// });
-
-// // Add token to requests
-// api.interceptors.request.use(
-//   (config) => {
-//     const token = localStorage.getItem('token');
-//     if (token) {
-//       config.headers.Authorization = `Bearer ${token}`;
-//     }
-    
-//     // Only set Content-Type to JSON if data is NOT FormData
-//     if (config.data && !(config.data instanceof FormData)) {
-//       config.headers['Content-Type'] = 'application/json';
-//     }
-//     // If FormData, let the browser set the Content-Type with boundary
-    
-//     return config;
-//   },
-//   (error) => Promise.reject(error)
-// );
-
-// // Handle response errors
-// api.interceptors.response.use(
-//   (response) => response,
-//   (error) => {
-//     // If we get a network error, log it specifically
-//     if (error.message === 'Network Error') {
-//         console.error('Network Error: Ensure Backend is running at http://localhost:5000');
-//     }
-
-//     if (error.response?.status === 401) {
-//       localStorage.removeItem('token');
-//       localStorage.removeItem('user');
-//       window.location.href = '/login';
-//     }
-//     return Promise.reject(error);
-//   }
-// );
-
-// export default api;
-
-
 import axios from 'axios';
+import toast from 'react-hot-toast';
 
-// ✅ Smart URL Detection: Works Online (Vercel) + Offline (Electron/Local)
+// ✅ 100% Offline - Always use the local server
 const getBaseURL = () => {
-  // 1. If environment variable is set, use it (Vercel production)
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
-  }
-
-  // 2. If running in Electron desktop app → always use localhost
-  if (
-    typeof window !== 'undefined' &&
-    (window.electron || navigator.userAgent.toLowerCase().includes('electron'))
-  ) {
-    return 'http://localhost:5000/api';
-  }
-
-  // 3. If running in browser on localhost → local development
-  if (
-    typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' || 
-     window.location.hostname === '127.0.0.1')
-  ) {
-    return 'http://localhost:5000/api';
-  }
-
-  // 4. If running on deployed site (Vercel) → use Render backend
-  return 'https://endoscopy-system.onrender.com/api';
+  // Always use 127.0.0.1 for offline mode
+  return 'http://127.0.0.1:5000/api';
 };
 
 const BASE_URL = getBaseURL();
-
 console.log('🌐 API Base URL:', BASE_URL);
 
 const api = axios.create({
   baseURL: BASE_URL,
-  timeout: 30000, // 30 second timeout
+  timeout: 30000,
 });
 
 // Add token to requests
 api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token');
+  function(config) {
+    var token = localStorage.getItem('token');
     if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+      config.headers.Authorization = 'Bearer ' + token;
     }
-
-    // Only set Content-Type to JSON if data is NOT FormData
     if (config.data && !(config.data instanceof FormData)) {
       config.headers['Content-Type'] = 'application/json';
     }
-    // If FormData, let the browser set the Content-Type with boundary
-
     return config;
   },
-  (error) => Promise.reject(error)
+  function(error) {
+    return Promise.reject(error);
+  }
 );
 
-// Handle response errors
+// Handle responses
 api.interceptors.response.use(
-  (response) => response,
-  (error) => {
+  function(response) {
+    return response;
+  },
+  function(error) {
     if (error.message === 'Network Error') {
       console.error('❌ Network Error: Backend not reachable at', BASE_URL);
+      toast.error('Cannot connect to server. Make sure the server is running.');
     }
 
-    if (error.code === 'ECONNABORTED') {
-      console.error('⏱️ Request timeout - server took too long');
-    }
-
-    if (error.response?.status === 401) {
+    if (error.response && error.response.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';
@@ -131,5 +51,54 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// ✅ Get server URL (without /api)
+export const getServerURL = function() {
+  return 'http://127.0.0.1:5000';
+};
+
+// ✅ FIXED: Get full image URL - Always use local server
+export const getImageURL = function(imagePath) {
+  if (!imagePath) return '';
+  
+  // If it's already a full localhost URL, return as-is
+  if (imagePath.startsWith('http://127.0.0.1:5000')) {
+    return imagePath;
+  }
+  
+  // If it's already a full localhost URL with "localhost"
+  if (imagePath.startsWith('http://localhost:5000')) {
+    return imagePath.replace('http://localhost:5000', 'http://127.0.0.1:5000');
+  }
+  
+  // If it's a data URI (base64), return as-is
+  if (imagePath.startsWith('data:')) {
+    return imagePath;
+  }
+  
+  // If it's a Cloudinary URL or any other http URL, we need to handle it
+  // For offline mode, these won't work, but let's not break the app
+  if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+    console.warn('⚠️ External URL detected (will not work offline):', imagePath);
+    return imagePath;
+  }
+  
+  // Clean up the path
+  var cleanPath = imagePath.replace(/\\/g, '/').replace(/^\//, '');
+  
+  // Make sure path starts with 'uploads/'
+  if (!cleanPath.startsWith('uploads/')) {
+    // Check if it has 'endoscopy-images' in it
+    if (cleanPath.includes('endoscopy-images/')) {
+      cleanPath = 'uploads/' + cleanPath.substring(cleanPath.indexOf('endoscopy-images/'));
+    } else {
+      cleanPath = 'uploads/endoscopy-images/' + cleanPath;
+    }
+  }
+  
+  var fullURL = 'http://127.0.0.1:5000/' + cleanPath;
+  console.log('🖼️ Image URL:', fullURL);
+  return fullURL;
+};
 
 export default api;

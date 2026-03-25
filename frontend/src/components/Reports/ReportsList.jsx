@@ -1,534 +1,6 @@
-// import React, { useState, useEffect, useCallback } from 'react';
-// import { useNavigate } from 'react-router-dom';
-// import api from '../../utils/api';
-// import {
-//   Search, Plus, Filter, FileText, CheckCircle,
-//   Clock, Eye, Edit, Trash2, ChevronRight,
-//   MoreVertical, X, RefreshCw
-// } from 'lucide-react';
-// import toast from 'react-hot-toast';
-// import clsx from 'clsx';
-
-// /* ─── Status Badge Component ─── */
-// const StatusBadge = ({ status }) => {
-//   const isFinalized = status === 'finalized';
-//   return (
-//     <span
-//       className={clsx(
-//         'inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-0.5 sm:py-1',
-//         'rounded-full text-[10px] sm:text-xs font-medium border',
-//         isFinalized
-//           ? 'bg-green-50 text-green-700 border-green-200'
-//           : 'bg-yellow-50 text-yellow-700 border-yellow-200'
-//       )}
-//     >
-//       {isFinalized ? <CheckCircle size={11} /> : <Clock size={11} />}
-//       {isFinalized ? 'Finalized' : 'Draft'}
-//     </span>
-//   );
-// };
-
-// /* ─── Mobile Action Menu ─── */
-// const MobileActions = ({ report, onView, onEdit, onDelete }) => {
-//   const [open, setOpen] = useState(false);
-
-//   // Close on outside click
-//   useEffect(() => {
-//     if (!open) return;
-//     const close = () => setOpen(false);
-//     document.addEventListener('click', close);
-//     document.addEventListener('touchstart', close);
-//     return () => {
-//       document.removeEventListener('click', close);
-//       document.removeEventListener('touchstart', close);
-//     };
-//   }, [open]);
-
-//   return (
-//     <div className="relative">
-//       <button
-//         onClick={(e) => {
-//           e.stopPropagation();
-//           setOpen((o) => !o);
-//         }}
-//         className="p-2 rounded-lg text-gray-400 hover:text-gray-600 
-//                    hover:bg-gray-100 transition-colors"
-//       >
-//         <MoreVertical size={18} />
-//       </button>
-
-//       {open && (
-//         <div
-//           className="absolute right-0 top-full mt-1 w-48 bg-white rounded-xl 
-//                      shadow-xl border z-50 py-1 overflow-hidden animate-in fade-in 
-//                      slide-in-from-top-2 duration-200"
-//           onClick={(e) => e.stopPropagation()}
-//         >
-//           <button
-//             onClick={() => { onView(); setOpen(false); }}
-//             className="w-full flex items-center gap-3 px-4 py-3 text-sm 
-//                        text-gray-700 hover:bg-blue-50 hover:text-blue-700 
-//                        transition-colors"
-//           >
-//             <Eye size={16} /> View & Print
-//           </button>
-//           {report.status === 'draft' && (
-//             <button
-//               onClick={() => { onEdit(); setOpen(false); }}
-//               className="w-full flex items-center gap-3 px-4 py-3 text-sm 
-//                          text-gray-700 hover:bg-green-50 hover:text-green-700 
-//                          transition-colors"
-//             >
-//               <Edit size={16} /> Edit Report
-//             </button>
-//           )}
-//           <div className="border-t border-gray-100" />
-//           <button
-//             onClick={() => { onDelete(); setOpen(false); }}
-//             className="w-full flex items-center gap-3 px-4 py-3 text-sm 
-//                        text-red-600 hover:bg-red-50 transition-colors"
-//           >
-//             <Trash2 size={16} /> Delete
-//           </button>
-//         </div>
-//       )}
-//     </div>
-//   );
-// };
-
-// const ReportsList = () => {
-//   const navigate = useNavigate();
-//   const [reports, setReports] = useState([]);
-//   const [search, setSearch] = useState('');
-//   const [statusFilter, setStatusFilter] = useState('');
-//   const [loading, setLoading] = useState(true);
-//   const [showFilters, setShowFilters] = useState(false);
-
-//   const fetchReports = useCallback(async () => {
-//     setLoading(true);
-//     try {
-//       const { data } = await api.get(
-//         `/reports?search=${search}&status=${statusFilter}`
-//       );
-//       setReports(data.reports);
-//     } catch {
-//       toast.error('Failed to load reports');
-//     } finally {
-//       setLoading(false);
-//     }
-//   }, [search, statusFilter]);
-
-//   useEffect(() => {
-//     const debounce = setTimeout(fetchReports, 300);
-//     return () => clearTimeout(debounce);
-//   }, [fetchReports]);
-
-//   const handleDelete = async (reportId, reportName) => {
-//     if (!window.confirm(`Delete report "${reportName}"? This cannot be undone.`))
-//       return;
-//     try {
-//       await api.delete(`/reports/${reportId}`);
-//       toast.success('Report deleted');
-//       fetchReports();
-//     } catch {
-//       toast.error('Failed to delete report');
-//     }
-//   };
-
-//   const formatDate = (dateStr) =>
-//     new Date(dateStr).toLocaleDateString(undefined, {
-//       year: 'numeric',
-//       month: 'short',
-//       day: 'numeric',
-//     });
-
-//   const activeFilters = [statusFilter].filter(Boolean).length;
-
-//   return (
-//     <div className="space-y-4 sm:space-y-6">
-
-//       {/* ═══════ HEADER ═══════ */}
-//       <div className="flex flex-col sm:flex-row justify-between 
-//                       items-start sm:items-center gap-3 sm:gap-4">
-//         <div>
-//           <h1 className="text-xl sm:text-2xl font-bold text-gray-800">
-//             Endoscopy Reports
-//           </h1>
-//           <p className="text-gray-500 text-xs sm:text-sm mt-0.5 sm:mt-1">
-//             View and manage procedure reports
-//             {!loading && (
-//               <span className="text-gray-400 ml-1">
-//                 ({reports.length} found)
-//               </span>
-//             )}
-//           </p>
-//         </div>
-//         <button
-//           onClick={() => navigate('/reports/new')}
-//           className="btn-primary flex items-center gap-2 shadow-lg 
-//                      shadow-blue-500/30 w-full sm:w-auto justify-center
-//                      py-2.5 sm:py-2"
-//         >
-//           <Plus size={18} /> Create New Report
-//         </button>
-//       </div>
-
-//       {/* ═══════ SEARCH & FILTERS ═══════ */}
-//       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-//         <div className="flex items-center gap-2 p-3 sm:p-4">
-//           {/* Search */}
-//           <div className="flex-1 relative">
-//             <Search
-//               className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-//               size={18}
-//             />
-//             <input
-//               type="text"
-//               placeholder="Search reports..."
-//               value={search}
-//               onChange={(e) => setSearch(e.target.value)}
-//               className="w-full pl-10 pr-4 py-2.5 sm:py-2 border border-gray-200 
-//                          rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 
-//                          text-sm"
-//             />
-//             {search && (
-//               <button
-//                 onClick={() => setSearch('')}
-//                 className="absolute right-3 top-1/2 -translate-y-1/2 
-//                            text-gray-400 hover:text-gray-600"
-//               >
-//                 <X size={16} />
-//               </button>
-//             )}
-//           </div>
-
-//           {/* Filter Toggle (mobile) */}
-//           <button
-//             onClick={() => setShowFilters((f) => !f)}
-//             className={clsx(
-//               'sm:hidden p-2.5 rounded-lg border transition-colors relative',
-//               showFilters || activeFilters > 0
-//                 ? 'bg-blue-50 border-blue-200 text-blue-600'
-//                 : 'border-gray-200 text-gray-500'
-//             )}
-//           >
-//             <Filter size={18} />
-//             {activeFilters > 0 && (
-//               <span className="absolute -top-1 -right-1 w-4 h-4 bg-blue-600 
-//                                text-white text-[9px] font-bold rounded-full 
-//                                flex items-center justify-center">
-//                 {activeFilters}
-//               </span>
-//             )}
-//           </button>
-
-//           {/* Filter (desktop — always visible) */}
-//           <div className="hidden sm:flex items-center gap-2 border-l pl-4 border-gray-200">
-//             <Filter size={16} className="text-gray-400 flex-shrink-0" />
-//             <select
-//               value={statusFilter}
-//               onChange={(e) => setStatusFilter(e.target.value)}
-//               className="outline-none text-sm text-gray-700 bg-transparent 
-//                          cursor-pointer py-2 pr-6"
-//             >
-//               <option value="">All Status</option>
-//               <option value="draft">Drafts</option>
-//               <option value="finalized">Finalized</option>
-//             </select>
-//           </div>
-
-//           {/* Refresh */}
-//           <button
-//             onClick={fetchReports}
-//             disabled={loading}
-//             className="hidden sm:flex p-2 rounded-lg border border-gray-200 
-//                        text-gray-500 hover:text-gray-700 hover:bg-gray-50 
-//                        transition-colors disabled:opacity-50"
-//             title="Refresh"
-//           >
-//             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-//           </button>
-//         </div>
-
-//         {/* Mobile Filter Drawer */}
-//         <div
-//           className={clsx(
-//             'sm:hidden border-t border-gray-100 bg-gray-50 transition-all duration-300',
-//             showFilters
-//               ? 'max-h-40 opacity-100 p-3'
-//               : 'max-h-0 opacity-0 overflow-hidden p-0'
-//           )}
-//         >
-//           <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">
-//             Status Filter
-//           </label>
-//           <div className="flex gap-2">
-//             {[
-//               { value: '', label: 'All' },
-//               { value: 'draft', label: 'Drafts' },
-//               { value: 'finalized', label: 'Finalized' },
-//             ].map((opt) => (
-//               <button
-//                 key={opt.value}
-//                 onClick={() => setStatusFilter(opt.value)}
-//                 className={clsx(
-//                   'px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
-//                   statusFilter === opt.value
-//                     ? 'bg-blue-600 text-white'
-//                     : 'bg-white border border-gray-200 text-gray-700'
-//                 )}
-//               >
-//                 {opt.label}
-//               </button>
-//             ))}
-//           </div>
-//         </div>
-//       </div>
-
-//       {/* ═══════ CONTENT ═══════ */}
-//       {loading ? (
-//         <div className="flex items-center justify-center py-16 sm:py-20">
-//           <div className="flex flex-col items-center gap-3">
-//             <RefreshCw size={28} className="text-blue-500 animate-spin" />
-//             <span className="text-sm text-gray-400">Loading reports...</span>
-//           </div>
-//         </div>
-//       ) : reports.length === 0 ? (
-//         <div className="text-center py-12 sm:py-16 bg-white rounded-xl border 
-//                         border-dashed border-gray-300">
-//           <FileText size={36} className="text-gray-300 mx-auto mb-3" />
-//           <h3 className="text-base sm:text-lg font-semibold text-gray-800 mb-1">
-//             No reports found
-//           </h3>
-//           <p className="text-sm text-gray-500 mb-4">
-//             {search || statusFilter
-//               ? 'Try adjusting your filters'
-//               : 'Create your first endoscopy report'}
-//           </p>
-//           {!search && !statusFilter && (
-//             <button
-//               onClick={() => navigate('/reports/new')}
-//               className="btn-primary inline-flex items-center gap-2"
-//             >
-//               <Plus size={16} /> Create Report
-//             </button>
-//           )}
-//         </div>
-//       ) : (
-//         <>
-//           {/* ─── Desktop Table (hidden on mobile) ─── */}
-//           <div className="hidden md:block bg-white rounded-xl shadow-sm 
-//                           border border-gray-100 overflow-hidden">
-//             <div className="overflow-x-auto">
-//               <table className="w-full text-left">
-//                 <thead className="bg-gray-50 border-b border-gray-100">
-//                   <tr>
-//                     <th className="px-6 py-4 font-semibold text-gray-600 text-sm">
-//                       Report Info
-//                     </th>
-//                     <th className="px-6 py-4 font-semibold text-gray-600 text-sm">
-//                       Patient
-//                     </th>
-//                     <th className="px-6 py-4 font-semibold text-gray-600 text-sm">
-//                       Date
-//                     </th>
-//                     <th className="px-6 py-4 font-semibold text-gray-600 text-sm">
-//                       Status
-//                     </th>
-//                     <th className="px-6 py-4 font-semibold text-gray-600 text-sm text-right">
-//                       Actions
-//                     </th>
-//                   </tr>
-//                 </thead>
-//                 <tbody className="divide-y divide-gray-50">
-//                   {reports.map((report) => (
-//                     <tr
-//                       key={report._id}
-//                       className="hover:bg-gray-50/80 transition-colors group cursor-pointer"
-//                       onClick={() => navigate(`/reports/${report._id}/print`)}
-//                     >
-//                       <td className="px-6 py-4">
-//                         <div className="flex items-center gap-3">
-//                           <div className="bg-blue-50 p-2 rounded-lg text-blue-600 flex-shrink-0">
-//                             <FileText size={18} />
-//                           </div>
-//                           <div className="min-w-0">
-//                             <p className="font-medium text-gray-900 truncate">
-//                               {report.procedureName}
-//                             </p>
-//                             <p className="text-xs text-gray-500 font-mono">
-//                               {report.reportId}
-//                             </p>
-//                           </div>
-//                         </div>
-//                       </td>
-//                       <td className="px-6 py-4">
-//                         <p className="text-sm font-medium text-gray-900">
-//                           {report.patient?.name}
-//                         </p>
-//                         <p className="text-xs text-gray-500">
-//                           {report.patient?.age}Y / {report.patient?.sex}
-//                         </p>
-//                       </td>
-//                       <td className="px-6 py-4 text-sm text-gray-500">
-//                         {formatDate(report.procedureDate)}
-//                       </td>
-//                       <td className="px-6 py-4">
-//                         <StatusBadge status={report.status} />
-//                       </td>
-//                       <td className="px-6 py-4 text-right">
-//                         <div
-//                           className="flex items-center justify-end gap-1"
-//                           onClick={(e) => e.stopPropagation()}
-//                         >
-//                           <button
-//                             onClick={() =>
-//                               navigate(`/reports/${report._id}/print`)
-//                             }
-//                             className="p-2 text-gray-400 hover:text-blue-600 
-//                                        hover:bg-blue-50 rounded-lg transition-colors"
-//                             title="View & Print"
-//                           >
-//                             <Eye size={18} />
-//                           </button>
-//                           {report.status === 'draft' && (
-//                             <button
-//                               onClick={() =>
-//                                 navigate(`/reports/${report._id}`)
-//                               }
-//                               className="p-2 text-gray-400 hover:text-green-600 
-//                                          hover:bg-green-50 rounded-lg transition-colors"
-//                               title="Edit Report"
-//                             >
-//                               <Edit size={18} />
-//                             </button>
-//                           )}
-//                           <button
-//                             onClick={() =>
-//                               handleDelete(report._id, report.reportId)
-//                             }
-//                             className="p-2 text-gray-300 hover:text-red-600 
-//                                        hover:bg-red-50 rounded-lg transition-colors 
-//                                        opacity-0 group-hover:opacity-100"
-//                             title="Delete Report"
-//                           >
-//                             <Trash2 size={18} />
-//                           </button>
-//                         </div>
-//                       </td>
-//                     </tr>
-//                   ))}
-//                 </tbody>
-//               </table>
-//             </div>
-//           </div>
-
-//           {/* ─── Mobile Card List (hidden on desktop) ─── */}
-//           <div className="md:hidden space-y-3">
-//             {reports.map((report) => (
-//               <div
-//                 key={report._id}
-//                 className="bg-white rounded-xl shadow-sm border border-gray-100 
-//                            overflow-hidden active:bg-gray-50 transition-colors"
-//               >
-//                 {/* Card Top — Tappable area */}
-//                 <button
-//                   type="button"
-//                   onClick={() => navigate(`/reports/${report._id}/print`)}
-//                   className="w-full text-left p-4 pb-3"
-//                 >
-//                   <div className="flex items-start justify-between gap-3">
-//                     {/* Left: Report Info */}
-//                     <div className="flex items-start gap-3 min-w-0 flex-1">
-//                       <div className="bg-blue-50 p-2 rounded-lg text-blue-600 
-//                                       flex-shrink-0 mt-0.5">
-//                         <FileText size={18} />
-//                       </div>
-//                       <div className="min-w-0 flex-1">
-//                         <p className="font-semibold text-gray-900 text-sm truncate">
-//                           {report.procedureName}
-//                         </p>
-//                         <p className="text-[11px] text-gray-500 font-mono mt-0.5">
-//                           {report.reportId}
-//                         </p>
-//                       </div>
-//                     </div>
-
-//                     {/* Right: Status + Chevron */}
-//                     <div className="flex items-center gap-2 flex-shrink-0">
-//                       <StatusBadge status={report.status} />
-//                       <ChevronRight size={16} className="text-gray-300" />
-//                     </div>
-//                   </div>
-
-//                   {/* Patient & Date Row */}
-//                   <div className="flex items-center justify-between mt-3 
-//                                   pt-3 border-t border-gray-100">
-//                     <div className="min-w-0">
-//                       <p className="text-sm font-medium text-gray-800 truncate">
-//                         {report.patient?.name}
-//                       </p>
-//                       <p className="text-[11px] text-gray-500">
-//                         {report.patient?.age}Y / {report.patient?.sex}
-//                       </p>
-//                     </div>
-//                     <div className="text-right flex-shrink-0 ml-4">
-//                       <p className="text-xs text-gray-500">
-//                         {formatDate(report.procedureDate)}
-//                       </p>
-//                     </div>
-//                   </div>
-//                 </button>
-
-//                 {/* Card Bottom — Actions Bar */}
-//                 <div className="flex items-center border-t border-gray-100 
-//                                 divide-x divide-gray-100">
-//                   <button
-//                     onClick={() => navigate(`/reports/${report._id}/print`)}
-//                     className="flex-1 flex items-center justify-center gap-2 
-//                                py-2.5 text-xs font-medium text-gray-600 
-//                                hover:text-blue-600 hover:bg-blue-50 
-//                                active:bg-blue-100 transition-colors"
-//                   >
-//                     <Eye size={14} /> View
-//                   </button>
-
-//                   {report.status === 'draft' && (
-//                     <button
-//                       onClick={() => navigate(`/reports/${report._id}`)}
-//                       className="flex-1 flex items-center justify-center gap-2 
-//                                  py-2.5 text-xs font-medium text-gray-600 
-//                                  hover:text-green-600 hover:bg-green-50 
-//                                  active:bg-green-100 transition-colors"
-//                     >
-//                       <Edit size={14} /> Edit
-//                     </button>
-//                   )}
-
-//                   <button
-//                     onClick={() => handleDelete(report._id, report.reportId)}
-//                     className="flex-1 flex items-center justify-center gap-2 
-//                                py-2.5 text-xs font-medium text-gray-400 
-//                                hover:text-red-600 hover:bg-red-50 
-//                                active:bg-red-100 transition-colors"
-//                   >
-//                     <Trash2 size={14} /> Delete
-//                   </button>
-//                 </div>
-//               </div>
-//             ))}
-//           </div>
-//         </>
-//       )}
-//     </div>
-//   );
-// };
-
-// export default ReportsList;
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../../utils/api';
+import api, { getImageURL } from '../../utils/api';
 import {
   Search, Plus, Filter, FileText, CheckCircle,
   Clock, Eye, Edit, Trash2, ChevronRight,
@@ -561,7 +33,8 @@ const StatusBadge = ({ status }) => {
           isFinalized ? 'bg-emerald-500' : 'bg-amber-500'
         )}
       />
-      {isFinalized ? 'Finalized' : 'Draft'}
+      {/* Changed label from Finalized to Completed to imply it is done, but not locked */}
+      {isFinalized ? 'Completed' : 'Draft'}
     </span>
   );
 };
@@ -579,7 +52,9 @@ const DeleteConfirmModal = ({ reportName, onConfirm, onCancel, loading }) => (
       <p className="text-gray-500 text-sm mt-2 leading-relaxed">
         Are you sure you want to delete{' '}
         <span className="font-semibold text-gray-700">{reportName}</span>?
-        This action cannot be undone.
+        <span className="block mt-1 text-red-500 font-medium text-xs">
+          All images will also be permanently deleted from cloud storage.
+        </span>
       </p>
       <div className="flex gap-3 mt-6">
         <button
@@ -684,20 +159,21 @@ const MobileActions = ({ report, onView, onEdit, onDelete }) => {
             </div>
             View & Print
           </button>
-          {report.status === 'draft' && (
-            <button
-              onClick={() => {
-                onEdit();
-                setOpen(false);
-              }}
-              className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors"
-            >
-              <div className="w-8 h-8 bg-emerald-50 rounded-lg flex items-center justify-center">
-                <Edit size={15} className="text-emerald-600" />
-              </div>
-              Edit Report
-            </button>
-          )}
+          
+          {/* ✅ Edit button is now ALWAYS visible */}
+          <button
+            onClick={() => {
+              onEdit();
+              setOpen(false);
+            }}
+            className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-colors"
+          >
+            <div className="w-8 h-8 bg-emerald-50 rounded-lg flex items-center justify-center">
+              <Edit size={15} className="text-emerald-600" />
+            </div>
+            Edit Report
+          </button>
+          
           <div className="border-t border-gray-100 my-1.5 mx-4" />
           <button
             onClick={() => {
@@ -773,14 +249,6 @@ const ReportsList = () => {
 
   const formatDate = (dateStr) =>
     new Date(dateStr).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-
-  const formatDateFull = (dateStr) =>
-    new Date(dateStr).toLocaleDateString('en-US', {
-      weekday: 'short',
       month: 'short',
       day: 'numeric',
       year: 'numeric',
@@ -873,7 +341,7 @@ const ReportsList = () => {
         />
         <StatsCard
           icon={Shield}
-          label="Finalized"
+          label="Completed"
           value={finalizedCount}
           color="emerald"
           active={statusFilter === 'finalized'}
@@ -922,7 +390,7 @@ const ReportsList = () => {
             >
               <option value="">All Status</option>
               <option value="draft">Drafts Only</option>
-              <option value="finalized">Finalized Only</option>
+              <option value="finalized">Completed Only</option>
             </select>
           </div>
 
@@ -978,7 +446,7 @@ const ReportsList = () => {
                   {' '}
                   •{' '}
                   <span className="text-gray-600 capitalize">
-                    {statusFilter}
+                    {statusFilter === 'finalized' ? 'Completed' : statusFilter}
                   </span>
                 </span>
               )}
@@ -1009,7 +477,7 @@ const ReportsList = () => {
             {[
               { value: '', label: 'All', icon: LayoutList },
               { value: 'draft', label: 'Drafts', icon: Edit },
-              { value: 'finalized', label: 'Finalized', icon: CheckCircle },
+              { value: 'finalized', label: 'Completed', icon: CheckCircle },
             ].map((opt) => (
               <button
                 key={opt.value}
@@ -1162,17 +630,16 @@ const ReportsList = () => {
                         >
                           <Eye size={17} />
                         </button>
-                        {report.status === 'draft' && (
-                          <button
-                            onClick={() =>
-                              navigate(`/reports/${report._id}`)
-                            }
-                            className="p-2 rounded-xl text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 transition-all"
-                            title="Edit Report"
-                          >
-                            <Edit size={17} />
-                          </button>
-                        )}
+                        
+                        {/* ✅ Edit button ALWAYS shown */}
+                        <button
+                          onClick={() => navigate(`/reports/${report._id}`)}
+                          className="p-2 rounded-xl text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 transition-all"
+                          title="Edit Report"
+                        >
+                          <Edit size={17} />
+                        </button>
+
                         <button
                           onClick={() => setDeletingReport(report)}
                           className="p-2 rounded-xl text-gray-300 hover:text-red-600 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100"
@@ -1224,9 +691,7 @@ const ReportsList = () => {
                     {/* Actions */}
                     <MobileActions
                       report={report}
-                      onView={() =>
-                        navigate(`/reports/${report._id}/print`)
-                      }
+                      onView={() => navigate(`/reports/${report._id}/print`)}
                       onEdit={() => navigate(`/reports/${report._id}`)}
                       onDelete={() => setDeletingReport(report)}
                     />
@@ -1268,14 +733,15 @@ const ReportsList = () => {
                   >
                     <Eye size={14} /> View
                   </button>
-                  {report.status === 'draft' && (
-                    <button
-                      onClick={() => navigate(`/reports/${report._id}`)}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-semibold text-emerald-600 hover:bg-emerald-50 transition-colors"
-                    >
-                      <Edit size={14} /> Edit
-                    </button>
-                  )}
+                  
+                  {/* ✅ Edit button ALWAYS shown */}
+                  <button
+                    onClick={() => navigate(`/reports/${report._id}`)}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-semibold text-emerald-600 hover:bg-emerald-50 transition-colors"
+                  >
+                    <Edit size={14} /> Edit
+                  </button>
+                  
                   <button
                     onClick={() => setDeletingReport(report)}
                     className="flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-semibold text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"

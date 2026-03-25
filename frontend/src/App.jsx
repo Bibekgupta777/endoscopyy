@@ -36,6 +36,8 @@ function AppRoutes() {
         <Route path="/reports" element={<PrivateRoute><ReportsList /></PrivateRoute>} />
         <Route path="/reports/new" element={<PrivateRoute><CreateReport /></PrivateRoute>} />
         <Route path="/reports/:id" element={<PrivateRoute><CreateReport /></PrivateRoute>} />
+                <Route path="/reports/:id/edit" element={<PrivateRoute><CreateReport /></PrivateRoute>} />
+
         <Route path="/reports/findings-panel" element={<PrivateRoute><FindingsPanel /></PrivateRoute>} />
         
         {/* Print page should NOT have the sidebar layout */}
@@ -43,7 +45,7 @@ function AppRoutes() {
         
         <Route path="/patients" element={<PrivateRoute><PatientList /></PrivateRoute>} />
         <Route path="/settings" element={<PrivateRoute><Settings /></PrivateRoute>} />
-        <Route path="/patients/:id" element={<PatientDetails />} />
+        <Route path="/patients/:id" element={<PrivateRoute><PatientDetails /></PrivateRoute>} />
         <Route path="/camera-test" element={<CameraTest />} />
         <Route path="/pentax-live-feed" element={<PentaxLiveFeed />} /> 
       </Routes>

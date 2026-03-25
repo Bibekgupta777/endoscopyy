@@ -3,7 +3,7 @@ backend/node_modules/
 frontend/node_modules/
 .env
 
-dist/
+
 build/
 dist_electron/
 dist_electron.zip

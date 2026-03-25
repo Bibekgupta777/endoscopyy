@@ -1,0 +1,12 @@
+@echo off
+title Endoscopy Application Server
+
+:: Navigate to the backend folder
+cd backend
+
+:: Open Google Chrome directly to the app
+start chrome "http://localhost:5000"
+
+:: Start the server (This keeps the app running)
+echo Running Endoscopy App... Do not close this black window while using the app.
+node server.js

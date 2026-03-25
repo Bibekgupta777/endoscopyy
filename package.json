@@ -5,10 +5,10 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "npm run build:frontend && electron-builder",
     "build:frontend": "cd frontend && npm run build",
-    "dist": "npm run build:frontend && electron-builder",
-    "dist:win": "npm run build:frontend && electron-builder --win"
+    "build:backend": "cd backend && npm install",
+    "dist": "npm run build:frontend && npm run build:backend && electron-builder",
+    "dist:win": "npm run build:frontend && npm run build:backend && electron-builder --win"
   },
   "build": {
     "appId": "com.endosys.recorder",

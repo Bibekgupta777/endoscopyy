@@ -2,12 +2,13 @@
 ```
 endoscopy-system
 ├─ backend
-│  ├─ backend-server.exe
 │  ├─ config
+│  │  ├─ cloudinary.js
 │  │  └─ db.js
 │  ├─ createAdmin.js
 │  ├─ middleware
 │  │  └─ auth.js
+│  ├─ migrateImages.js
 │  ├─ models
 │  │  ├─ Patient.js
 │  │  ├─ Report.js
@@ -22,8 +23,6 @@ endoscopy-system
 │  │  └─ settings.js
 │  ├─ seedAdmin.js
 │  ├─ server.js
-│  ├─ uploads
-│  │  └─ endoscopy-images
 │  └─ utils
 │     └─ pdfGenerator.js
 ├─ frontend

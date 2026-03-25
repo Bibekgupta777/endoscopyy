@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../../utils/api';
+import api, { getImageURL } from '../../utils/api';
 import {
   Search, Plus, User, Phone, Calendar, ArrowRight,
   Edit, Trash2, X, MoreVertical, FilePlus, Image as ImageIcon,
   MapPin, FileText, ExternalLink, Maximize2, Download,
   ChevronLeft, ChevronRight, Filter, SortAsc, SortDesc,
   Clock, Hash, Activity, Eye, ZoomIn, ChevronDown,
-  UserPlus, AlertCircle, CheckCircle, Loader2, ArrowUpDown
+  UserPlus, AlertCircle, CheckCircle, Loader2, ArrowUpDown,
+  Stethoscope
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
@@ -17,7 +18,8 @@ import clsx from 'clsx';
    ═══════════════════════════════════════════════════════════════════ */
 const Lightbox = ({ image, onClose, images, onNavigate }) => {
   if (!image) return null;
-  const imageUrl = `${import.meta.env.VITE_API_URL?.replace('/api', '')}/${image.path.replace(/\\/g, '/')}`;
+  const imageUrl = getImageURL(image.path);
+
   const currentIndex = images?.findIndex(i => i.path === image.path) ?? -1;
 
   useEffect(() => {
@@ -39,7 +41,6 @@ const Lightbox = ({ image, onClose, images, onNavigate }) => {
       className="fixed inset-0 z-[100] bg-black/98 backdrop-blur-3xl flex flex-col items-center justify-center animate-in fade-in duration-200"
       onClick={onClose}
     >
-      {/* Top bar */}
       <div className="absolute top-0 left-0 right-0 h-20 bg-gradient-to-b from-black/80 via-black/40 to-transparent z-10 flex items-center justify-between px-8">
         <div className="text-white/60 text-sm font-medium tracking-wide">
           {currentIndex >= 0 && (
@@ -69,7 +70,6 @@ const Lightbox = ({ image, onClose, images, onNavigate }) => {
         </div>
       </div>
 
-      {/* Navigation arrows */}
       {currentIndex > 0 && (
         <button
           onClick={e => { e.stopPropagation(); onNavigate(images[currentIndex - 1]); }}
@@ -87,7 +87,6 @@ const Lightbox = ({ image, onClose, images, onNavigate }) => {
         </button>
       )}
 
-      {/* Image */}
       <div className="relative max-w-[88vw] max-h-[78vh]" onClick={e => e.stopPropagation()}>
         <img
           src={imageUrl}
@@ -97,11 +96,7 @@ const Lightbox = ({ image, onClose, images, onNavigate }) => {
         />
       </div>
 
-      {/* Bottom info */}
-      <div
-        className="mt-8 text-center text-white px-6"
-        onClick={e => e.stopPropagation()}
-      >
+      <div className="mt-8 text-center text-white px-6" onClick={e => e.stopPropagation()}>
         <p className="font-semibold text-lg tracking-tight">{image.taggedOrgan || 'Untagged'}</p>
         <p className="text-white/40 text-sm mt-1.5 font-medium">
           {image.caption || 'No caption'} &middot;{' '}
@@ -196,7 +191,6 @@ const PatientGalleryModal = ({ patient, onClose }) => {
       <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-0 sm:p-6">
         <div className="bg-white w-full h-full sm:h-[92vh] sm:max-w-5xl sm:rounded-3xl shadow-2xl shadow-black/20 overflow-hidden flex flex-col animate-in slide-in-from-bottom-4 fade-in duration-300">
 
-          {/* Header */}
           <div className="relative bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-8 py-7 text-white shrink-0 overflow-hidden">
             <div className="absolute inset-0 opacity-30">
               <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl" />
@@ -233,7 +227,6 @@ const PatientGalleryModal = ({ patient, onClose }) => {
             </div>
           </div>
 
-          {/* Tabs */}
           <div className="px-8 bg-white border-b border-slate-200/80 shrink-0">
             <div className="flex gap-2">
               {[
@@ -245,18 +238,14 @@ const PatientGalleryModal = ({ patient, onClose }) => {
                   onClick={() => setActiveTab(tab.id)}
                   className={clsx(
                     'relative flex items-center gap-2.5 px-5 py-4 text-sm font-semibold transition-all duration-300',
-                    activeTab === tab.id
-                      ? 'text-slate-900'
-                      : 'text-slate-400 hover:text-slate-600'
+                    activeTab === tab.id ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600'
                   )}
                 >
                   <tab.icon size={16} />
                   {tab.label}
                   <span className={clsx(
                     'text-[11px] min-w-[28px] text-center px-2 py-0.5 rounded-full font-bold tabular-nums transition-colors duration-300',
-                    activeTab === tab.id
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-slate-100 text-slate-500'
+                    activeTab === tab.id ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'
                   )}>
                     {tab.count}
                   </span>
@@ -268,7 +257,6 @@ const PatientGalleryModal = ({ patient, onClose }) => {
             </div>
           </div>
 
-          {/* Body */}
           <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-gradient-to-b from-slate-50/80 to-white">
             {loading ? (
               activeTab === 'gallery' ? <GallerySkeleton /> : <TableSkeleton />
@@ -292,19 +280,19 @@ const PatientGalleryModal = ({ patient, onClose }) => {
                           className="group relative aspect-square rounded-2xl overflow-hidden cursor-pointer bg-slate-100 ring-1 ring-black/[0.06] hover:ring-2 hover:ring-blue-300/60 transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/10"
                         >
                           <img
-                            src={`${import.meta.env.VITE_API_URL?.replace('/api', '')}/${img.path.replace(/\\/g, '/')}`}
+                            src={getImageURL(img.path)}
                             className="w-full h-full object-cover transition-all duration-700 ease-out group-hover:scale-110"
                             alt={img.caption}
                             loading="lazy"
                           />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-400" />
-                          <div className="absolute bottom-0 left-0 right-0 p-4 translate-y-3 group-hover:translate-y-0 opacity-0 group-hover:opacity-100 transition-all duration-400">
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent opacity-0 opacity-100 transition-all duration-400" />
+                          <div className="absolute bottom-0 left-0 right-0 p-4 translate-y-3 group-hover:translate-y-0 opacity-0 opacity-100 transition-all duration-400">
                             <p className="text-white text-sm font-bold truncate">{img.taggedOrgan || 'Untagged'}</p>
                             <p className="text-white/50 text-xs mt-1 font-medium">
                               {new Date(img.procedureDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                             </p>
                           </div>
-                          <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-all duration-300 scale-75 group-hover:scale-100">
+                          <div className="absolute top-3 right-3 opacity-100 transition-all duration-300 scale-75 group-hover:scale-100">
                             <div className="p-2.5 bg-white/20 backdrop-blur-xl rounded-xl text-white border border-white/10">
                               <ZoomIn size={15} />
                             </div>
@@ -371,7 +359,6 @@ const PatientGalleryModal = ({ patient, onClose }) => {
             )}
           </div>
 
-          {/* Footer */}
           <div className="bg-white border-t border-slate-200/80 px-8 py-5 flex items-center justify-between gap-3 shrink-0">
             <button
               onClick={onClose}
@@ -420,41 +407,21 @@ const MobileActions = ({ onEdit, onDelete, onCreateReport, onViewGallery }) => {
 
       {open && (
         <div className="absolute right-0 top-full mt-2.5 w-56 bg-white rounded-2xl shadow-2xl shadow-slate-300/40 border border-slate-200/80 z-30 py-2 overflow-hidden animate-in slide-in-from-top-2 fade-in duration-200">
-          <button
-            onClick={() => { onCreateReport(); setOpen(false); }}
-            className="w-full flex items-center gap-3 px-5 py-3 text-sm font-medium text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition-all duration-200"
-          >
-            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-              <FilePlus size={15} className="text-blue-500" />
-            </div>
+          <button onClick={() => { onCreateReport(); setOpen(false); }} className="w-full flex items-center gap-3 px-5 py-3 text-sm font-medium text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition-all duration-200">
+            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center"><FilePlus size={15} className="text-blue-500" /></div>
             Create Report
           </button>
-          <button
-            onClick={() => { onViewGallery(); setOpen(false); }}
-            className="w-full flex items-center gap-3 px-5 py-3 text-sm font-medium text-slate-700 hover:bg-violet-50 hover:text-violet-700 transition-all duration-200"
-          >
-            <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center">
-              <ImageIcon size={15} className="text-violet-500" />
-            </div>
+          <button onClick={() => { onViewGallery(); setOpen(false); }} className="w-full flex items-center gap-3 px-5 py-3 text-sm font-medium text-slate-700 hover:bg-violet-50 hover:text-violet-700 transition-all duration-200">
+            <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center"><ImageIcon size={15} className="text-violet-500" /></div>
             View Gallery
           </button>
           <div className="my-2 mx-4 border-t border-slate-100" />
-          <button
-            onClick={() => { onEdit(); setOpen(false); }}
-            className="w-full flex items-center gap-3 px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-all duration-200"
-          >
-            <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center">
-              <Edit size={15} className="text-slate-500" />
-            </div>
+          <button onClick={() => { onEdit(); setOpen(false); }} className="w-full flex items-center gap-3 px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-all duration-200">
+            <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center"><Edit size={15} className="text-slate-500" /></div>
             Edit Details
           </button>
-          <button
-            onClick={() => { onDelete(); setOpen(false); }}
-            className="w-full flex items-center gap-3 px-5 py-3 text-sm font-medium text-red-600 hover:bg-red-50 transition-all duration-200"
-          >
-            <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center">
-              <Trash2 size={15} className="text-red-500" />
-            </div>
+          <button onClick={() => { onDelete(); setOpen(false); }} className="w-full flex items-center gap-3 px-5 py-3 text-sm font-medium text-red-600 hover:bg-red-50 transition-all duration-200">
+            <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center"><Trash2 size={15} className="text-red-500" /></div>
             Delete Patient
           </button>
         </div>
@@ -476,9 +443,27 @@ const PatientList = () => {
   const [viewingPatient, setViewingPatient] = useState(null);
   const [sortField, setSortField] = useState('createdAt');
   const [sortDir, setSortDir] = useState('desc');
-  const [formData, setFormData] = useState({ name: '', age: '', sex: 'Male', phone: '', address: '' });
+  const [settings, setSettings] = useState(null);           // ✅ NEW
+  const [formData, setFormData] = useState({
+    name: '', age: '', sex: 'Male', phone: '', address: '',
+    serialNumber: '', idNumber: '', billNumber: '',
+    indication: '', referredDoc: '', doneDoc: '', remark: '',
+    procedureType: ''                                         // ✅ NEW
+  });
   const [submitting, setSubmitting] = useState(false);
   const searchRef = useRef(null);
+
+  // ✅ NEW — Fetch settings once on mount (for procedures list)
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get('/settings');
+        setSettings(data);
+      } catch {
+        // silently ignore — dropdown will just be empty
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(fetchPatients, 300);
@@ -560,15 +545,31 @@ const PatientList = () => {
     setEditingPatient(patient);
     const age = patient.dateOfBirth
       ? new Date().getFullYear() - new Date(patient.dateOfBirth).getFullYear()
-      : '';
-    setFormData({ name: patient.name, age, sex: patient.sex, phone: patient.phone || '', address: patient.address || '' });
+      : patient.age || '';
+    setFormData({
+      name: patient.name, age, sex: patient.sex,
+      phone: patient.phone || '', address: patient.address || '',
+      serialNumber: patient.serialNumber || '',
+      idNumber: patient.idNumber || '',
+      billNumber: patient.billNumber || '',
+      indication: patient.indication || '',
+      referredDoc: patient.referredDoc || '',
+      doneDoc: patient.doneDoc || '',
+      remark: patient.remark || '',
+      procedureType: patient.procedureType || ''               // ✅ NEW
+    });
     setShowForm(true);
   };
 
   const resetForm = () => {
     setShowForm(false);
     setEditingPatient(null);
-    setFormData({ name: '', age: '', sex: 'Male', phone: '', address: '' });
+    setFormData({
+      name: '', age: '', sex: 'Male', phone: '', address: '',
+      serialNumber: '', idNumber: '', billNumber: '',
+      indication: '', referredDoc: '', doneDoc: '', remark: '',
+      procedureType: ''                                         // ✅ NEW
+    });
   };
 
   const getInitials = n => n.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
@@ -698,10 +699,7 @@ const PatientList = () => {
               </thead>
               <tbody className="divide-y divide-slate-100/80">
                 {sortedPatients.map((patient, i) => (
-                  <tr
-                    key={patient._id}
-                    className="group hover:bg-blue-50/30 transition-colors duration-200"
-                  >
+                  <tr key={patient._id} className="group hover:bg-blue-50/30 transition-colors duration-200">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-4">
                         <div className={clsx(
@@ -714,6 +712,15 @@ const PatientList = () => {
                           <p className="font-bold text-slate-800 text-[15px]">{patient.name}</p>
                           <p className="text-xs text-slate-400 mt-0.5 font-medium">
                             {patient.age} yrs &middot; {patient.sex}
+                            {/* ✅ Show procedure type badge in table */}
+                            {patient.procedureType && (
+                              <span className="ml-2 inline-flex items-center gap-1 text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-semibold border border-blue-100">
+                                <Stethoscope size={9} />
+                                {patient.procedureType.length > 20
+                                  ? patient.procedureType.substring(0, 20) + '…'
+                                  : patient.procedureType}
+                              </span>
+                            )}
                           </p>
                         </div>
                       </div>
@@ -740,7 +747,7 @@ const PatientList = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all duration-300">
+                      <div className="flex items-center justify-end gap-1 opacity-0 opacity-100 transition-all duration-300">
                         <button
                           onClick={() => navigate(`/reports/new?patient=${patient._id}`)}
                           className="p-2.5 rounded-xl text-blue-600 hover:bg-blue-100 transition-all duration-200 hover:scale-105"
@@ -749,9 +756,9 @@ const PatientList = () => {
                           <FilePlus size={17} />
                         </button>
                         <button
-                          onClick={() => setViewingPatient(patient)}
+                          onClick={() => navigate(`/patients/${patient._id}`)}
                           className="p-2.5 rounded-xl text-violet-600 hover:bg-violet-100 transition-all duration-200 hover:scale-105"
-                          title="Gallery & History"
+                          title="View Patient Profile"
                         >
                           <Eye size={17} />
                         </button>
@@ -794,11 +801,19 @@ const PatientList = () => {
                     </div>
                     <div className="min-w-0">
                       <h3 className="font-bold text-slate-800 text-[15px] truncate">{patient.name}</h3>
-                      <div className="flex items-center gap-2.5 mt-1">
+                      <div className="flex items-center gap-2.5 mt-1 flex-wrap">
                         <span className="text-xs text-slate-400 font-medium">{patient.age}Y &middot; {patient.sex}</span>
                         <span className="text-xs text-slate-500 font-mono bg-slate-100 px-2 py-0.5 rounded-md font-semibold border border-slate-200/60">
                           {patient.patientId}
                         </span>
+                        {/* ✅ Show procedure badge on mobile */}
+                        {patient.procedureType && (
+                          <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-semibold border border-blue-100">
+                            {patient.procedureType.length > 15
+                              ? patient.procedureType.substring(0, 15) + '…'
+                              : patient.procedureType}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -806,7 +821,7 @@ const PatientList = () => {
                     onEdit={() => handleEdit(patient)}
                     onDelete={() => handleDelete(patient._id)}
                     onCreateReport={() => navigate(`/reports/new?patient=${patient._id}`)}
-                    onViewGallery={() => setViewingPatient(patient)}
+                    onViewGallery={() => navigate(`/patients/${patient._id}`)}
                   />
                 </div>
 
@@ -833,148 +848,222 @@ const PatientList = () => {
         </>
       )}
 
-      {/* ══════ FORM MODAL ══════ */}
+      {/* ══════ PATIENT FORM MODAL ══════ */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
+          onClick={resetForm}>
           <div
-            className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl shadow-black/20 flex flex-col max-h-[92vh] animate-in slide-in-from-bottom-4 fade-in duration-300"
+            className="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-xl flex flex-col max-h-[90vh]"
             onClick={e => e.stopPropagation()}
           >
-            {/* Modal header */}
-            <div className="flex items-center justify-between p-7 pb-5">
-              <div>
-                <div className="flex items-center gap-3 mb-1">
-                  <div className={clsx(
-                    'w-10 h-10 rounded-xl flex items-center justify-center shadow-md',
-                    editingPatient
-                      ? 'bg-gradient-to-br from-amber-500 to-orange-600 shadow-amber-500/20'
-                      : 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/20'
-                  )}>
-                    {editingPatient ? <Edit size={18} className="text-white" /> : <UserPlus size={18} className="text-white" />}
-                  </div>
-                  <h2 className="text-xl font-bold text-slate-900">
-                    {editingPatient ? 'Edit Patient' : 'New Patient'}
-                  </h2>
-                </div>
-                <p className="text-sm text-slate-500 mt-1 ml-[52px]">
-                  {editingPatient ? 'Update patient information' : 'Fill in the patient details'}
-                </p>
+            {/* Header */}
+            <div className={clsx(
+              'px-6 py-4 flex items-center justify-between rounded-t-2xl',
+              editingPatient ? 'bg-amber-500' : 'bg-blue-600'
+            )}>
+              <div className="flex items-center gap-3">
+                {editingPatient
+                  ? <Edit size={20} className="text-white" />
+                  : <UserPlus size={20} className="text-white" />
+                }
+                <h2 className="text-lg font-bold text-white">
+                  {editingPatient ? 'Edit Patient' : 'Register Patient'}
+                </h2>
               </div>
-              <button
-                onClick={resetForm}
-                className="p-2.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all duration-200"
-              >
+              <button onClick={resetForm} className="text-white/80 hover:text-white p-1">
                 <X size={20} />
               </button>
             </div>
 
             {/* Form */}
-            <div className="px-7 pb-7 overflow-y-auto flex-1">
+            <div className="flex-1 overflow-y-auto px-6 py-5">
               <form id="patientForm" onSubmit={handleSubmit} className="space-y-5">
-                {/* Name */}
+
+                {/* ── Basic Info ── */}
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <User size={12} /> Basic Information
+                </p>
+
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  <label className="text-xs font-semibold text-slate-600 mb-1 block">
                     Full Name <span className="text-red-400">*</span>
                   </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                      <User size={16} className="text-slate-400" />
-                    </div>
+                  <input
+                    type="text"
+                    value={formData.name}
+                    onChange={e => setFormData({ ...formData, name: e.target.value })}
+                    placeholder="Patient full name"
+                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    required
+                    autoFocus
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600 mb-1 block">
+                      Age <span className="text-red-400">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.age}
+                      onChange={e => setFormData({ ...formData, age: e.target.value })}
+                      placeholder="Yrs"
+                      className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                      required min="0" max="150"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600 mb-1 block">
+                      Sex <span className="text-red-400">*</span>
+                    </label>
+                    <select
+                      value={formData.sex}
+                      onChange={e => setFormData({ ...formData, sex: e.target.value })}
+                      className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+                    >
+                      <option>Male</option>
+                      <option>Female</option>
+                      <option>Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600 mb-1 block">Serial No.</label>
                     <input
                       type="text"
-                      value={formData.name}
-                      onChange={e => setFormData({ ...formData, name: e.target.value })}
-                      placeholder="Enter patient name"
-                      className="w-full pl-11 pr-4 py-3.5 border-2 border-slate-200/80 rounded-xl text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10 transition-all duration-300 hover:border-slate-300"
-                      required
-                      autoFocus
+                      value={formData.serialNumber}
+                      onChange={e => setFormData({ ...formData, serialNumber: e.target.value })}
+                      placeholder="Auto"
+                      className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                     />
                   </div>
                 </div>
 
-                {/* Age + Sex */}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                      Age <span className="text-red-400">*</span>
-                    </label>
-                    <div className="relative">
-                      <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                        <Calendar size={16} className="text-slate-400" />
-                      </div>
-                      <input
-                        type="number"
-                        value={formData.age}
-                        onChange={e => setFormData({ ...formData, age: e.target.value })}
-                        placeholder="Years"
-                        className="w-full pl-11 pr-4 py-3.5 border-2 border-slate-200/80 rounded-xl text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10 transition-all duration-300 hover:border-slate-300"
-                        required
-                        min="0"
-                        max="150"
-                      />
-                    </div>
+                    <label className="text-xs font-semibold text-slate-600 mb-1 block">ID Number</label>
+                    <input
+                      type="text"
+                      value={formData.idNumber}
+                      onChange={e => setFormData({ ...formData, idNumber: e.target.value })}
+                      placeholder="Aadhaar / ID"
+                      className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    />
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                      Sex <span className="text-red-400">*</span>
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={formData.sex}
-                        onChange={e => setFormData({ ...formData, sex: e.target.value })}
-                        className="w-full px-4 py-3.5 border-2 border-slate-200/80 rounded-xl text-sm text-slate-700 bg-white outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10 transition-all duration-300 appearance-none cursor-pointer hover:border-slate-300"
-                      >
-                        <option>Male</option>
-                        <option>Female</option>
-                        <option>Other</option>
-                      </select>
-                      <ChevronDown size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                    </div>
+                    <label className="text-xs font-semibold text-slate-600 mb-1 block">Bill Number</label>
+                    <input
+                      type="text"
+                      value={formData.billNumber}
+                      onChange={e => setFormData({ ...formData, billNumber: e.target.value })}
+                      placeholder="Bill / Receipt"
+                      className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    />
                   </div>
                 </div>
 
-                {/* Phone */}
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">Phone</label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                      <Phone size={16} className="text-slate-400" />
-                    </div>
+                {/* ── Contact ── */}
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2 pt-2 border-t border-slate-100">
+                  <Phone size={12} /> Contact
+                </p>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600 mb-1 block">Phone</label>
                     <input
                       type="tel"
                       value={formData.phone}
                       onChange={e => setFormData({ ...formData, phone: e.target.value })}
                       placeholder="Contact number"
-                      className="w-full pl-11 pr-4 py-3.5 border-2 border-slate-200/80 rounded-xl text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10 transition-all duration-300 hover:border-slate-300"
+                      className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                     />
                   </div>
-                </div>
-
-                {/* Address */}
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">Address</label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                      <MapPin size={16} className="text-slate-400" />
-                    </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600 mb-1 block">Address</label>
                     <input
                       type="text"
                       value={formData.address}
                       onChange={e => setFormData({ ...formData, address: e.target.value })}
                       placeholder="Patient address"
-                      className="w-full pl-11 pr-4 py-3.5 border-2 border-slate-200/80 rounded-xl text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10 transition-all duration-300 hover:border-slate-300"
+                      className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                     />
                   </div>
                 </div>
+
+                {/* ── Clinical ── */}
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2 pt-2 border-t border-slate-100">
+                  <Activity size={12} /> Clinical
+                </p>
+
+              {/* ✅ Procedure Type — Manual Text Input */}
+<div>
+  <label className="text-xs font-semibold text-slate-600 mb-1 block flex items-center gap-1.5">
+    <Stethoscope size={12} className="text-blue-500" />
+    Procedure Type
+  </label>
+  <input
+    type="text"
+    value={formData.procedureType}
+    onChange={e => setFormData({ ...formData, procedureType: e.target.value })}
+    placeholder="e.g., Video GastroDuodenoscopy, Colonoscopy"
+    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+  />
+</div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-600 mb-1 block">Indication</label>
+                  <input
+                    type="text"
+                    value={formData.indication}
+                    onChange={e => setFormData({ ...formData, indication: e.target.value })}
+                    placeholder="e.g., Dyspepsia, Acidity, GERD"
+                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600 mb-1 block">Referred By</label>
+                    <input
+                      type="text"
+                      value={formData.referredDoc}
+                      onChange={e => setFormData({ ...formData, referredDoc: e.target.value })}
+                      placeholder="Referring doctor"
+                      className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600 mb-1 block">Performed By</label>
+                    <input
+                      type="text"
+                      value={formData.doneDoc}
+                      onChange={e => setFormData({ ...formData, doneDoc: e.target.value })}
+                      placeholder="Performing doctor"
+                      className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-600 mb-1 block">Remarks</label>
+                  <textarea
+                    value={formData.remark}
+                    onChange={e => setFormData({ ...formData, remark: e.target.value })}
+                    placeholder="Additional notes..."
+                    rows={2}
+                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-none"
+                  />
+                </div>
+
               </form>
             </div>
 
             {/* Footer */}
-            <div className="p-7 pt-5 border-t border-slate-200/80 flex gap-3 bg-gradient-to-t from-slate-50/80 to-white sm:rounded-b-3xl">
+            <div className="px-6 py-4 border-t border-slate-200 flex gap-3 bg-slate-50 rounded-b-2xl">
               <button
                 type="button"
                 onClick={resetForm}
-                className="flex-1 py-3.5 text-sm font-semibold text-slate-600 bg-white border-2 border-slate-200/80 rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
+                className="flex-1 py-2.5 text-sm font-semibold text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
               >
                 Cancel
               </button>
@@ -983,35 +1072,21 @@ const PatientList = () => {
                 form="patientForm"
                 disabled={submitting}
                 className={clsx(
-                  'flex-1 py-3.5 text-sm font-semibold text-white rounded-xl shadow-lg transition-all duration-300 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2.5 active:scale-[0.97]',
+                  'flex-1 py-2.5 text-sm font-bold text-white rounded-lg inline-flex items-center justify-center gap-2 disabled:opacity-50',
                   editingPatient
-                    ? 'bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 shadow-amber-500/25 hover:shadow-xl hover:shadow-amber-500/35'
-                    : 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-blue-600/25 hover:shadow-xl hover:shadow-blue-600/35'
+                    ? 'bg-amber-500 hover:bg-amber-600'
+                    : 'bg-blue-600 hover:bg-blue-700'
                 )}
               >
                 {submitting ? (
-                  <>
-                    <Loader2 size={17} className="animate-spin" />
-                    Saving…
-                  </>
+                  <><Loader2 size={16} className="animate-spin" /> Saving…</>
                 ) : (
-                  <>
-                    <CheckCircle size={17} />
-                    {editingPatient ? 'Update Patient' : 'Save Patient'}
-                  </>
+                  <><CheckCircle size={16} /> {editingPatient ? 'Update' : 'Register'}</>
                 )}
               </button>
             </div>
           </div>
         </div>
-      )}
-
-      {/* ══════ GALLERY MODAL ══════ */}
-      {viewingPatient && (
-        <PatientGalleryModal
-          patient={viewingPatient}
-          onClose={() => setViewingPatient(null)}
-        />
       )}
     </div>
   );

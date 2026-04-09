@@ -3,9 +3,10 @@ import api from '../../utils/api';
 import { 
   Save, Building2, List, Upload, User, Stethoscope, 
   Plus, X, Trash2, BookOpen, Settings as SettingsIcon,
-  Check, Edit2, AlertCircle, CheckCircle, Zap
+  Check, Edit2, AlertCircle, CheckCircle, Zap, Database // ✅ Added Database icon
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import SystemMonitoring from './SystemMonitoring'; // ✅ Added import
 
 // ============================================
 // ✅ STANDARD MEDICAL FINDINGS DATABASE
@@ -594,6 +595,7 @@ const Settings = () => {
     hospitalEmail: '', 
     hospitalLogo: '',
     adminName: '',
+    saveLocation: '',
     doctors: [],
     clinicalLibrary: {
       EGD: [],
@@ -629,9 +631,6 @@ const Settings = () => {
     try {
       const { data } = await api.get('/settings');
       
-      console.log("=== LOADED SETTINGS ===");
-      console.log("clinicalLibrary:", data.clinicalLibrary);
-      
       const clinicalLibrary = {
         EGD: Array.isArray(data.clinicalLibrary?.EGD) ? data.clinicalLibrary.EGD : [],
         Colonoscopy: Array.isArray(data.clinicalLibrary?.Colonoscopy) ? data.clinicalLibrary.Colonoscopy : [],
@@ -646,6 +645,7 @@ const Settings = () => {
         hospitalEmail: data.hospitalEmail || '',
         hospitalLogo: data.hospitalLogo || '',
         adminName: data.adminName || 'Administrator',
+        saveLocation: data.saveLocation || '',
         doctors: Array.isArray(data.doctors) ? data.doctors : [],
         clinicalLibrary: clinicalLibrary,
         procedures: Array.isArray(data.procedures) ? data.procedures : [],
@@ -670,13 +670,7 @@ const Settings = () => {
   const handleSave = async () => {
     const loadingToast = toast.loading('Saving all settings...');
     try {
-      console.log("=== SAVING ===");
-      console.log("clinicalLibrary EGD count:", settings.clinicalLibrary?.EGD?.length || 0);
-      
       const { data } = await api.put('/settings', settings);
-      
-      console.log("=== SAVE RESPONSE ===");
-      console.log("Response EGD count:", data.clinicalLibrary?.EGD?.length || 0);
       
       const clinicalLibrary = {
         EGD: Array.isArray(data.clinicalLibrary?.EGD) ? data.clinicalLibrary.EGD : [],
@@ -861,7 +855,8 @@ const Settings = () => {
           { id: 'branding', label: 'Hospital', icon: Building2 },
           { id: 'procedures', label: 'Procedures', icon: List },
           { id: 'library', label: 'Clinical Library', icon: BookOpen },
-          { id: 'clinical', label: 'Dropdown Lists', icon: List }
+          { id: 'clinical', label: 'Dropdown Lists', icon: List },
+          { id: 'monitoring', label: 'System Health', icon: Database } // ✅ NEW TAB ADDED HERE
         ].map(tab => (
           <button 
             key={tab.id}
@@ -1019,6 +1014,44 @@ const Settings = () => {
                 </div>
               </div>
             </div>
+
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-blue-100">
+              <h3 className="text-lg font-bold text-gray-800 border-b pb-3 mb-4 flex items-center gap-2">
+                <Zap size={18} className="text-blue-600" /> Image Storage Location
+              </h3>
+              <div>
+                <label className="label">Save Patient Images & Videos to:</label>
+                <div className="flex gap-2">
+                  <input 
+                    type="text" 
+                    value={settings.saveLocation || 'Default System Drive (C:\\)'} 
+                    readOnly 
+                    className="input-field bg-gray-50 flex-1 text-gray-700 border-gray-200" 
+                  />
+                  <button 
+                    onClick={async () => {
+                      if (window.electronAPI && window.electronAPI.selectFolder) {
+                        const folderPath = await window.electronAPI.selectFolder();
+                        if (folderPath) {
+                           setSettings({...settings, saveLocation: folderPath});
+                           setHasUnsavedChanges(true);
+                           toast.success('Path selected! Click "Save All Changes" above.');
+                        }
+                      } else {
+                        toast.error('Folder selection is only available in the Desktop App.');
+                      }
+                    }} 
+                    className="bg-gray-800 text-white px-5 rounded-lg font-bold hover:bg-gray-900 transition flex items-center gap-2"
+                  >
+                    <Upload size={16} /> Browse...
+                  </button>
+                </div>
+                <p className="text-xs text-red-500 mt-2 font-semibold">
+                  * Warning: If you select an external USB or Hard Drive, ensure it is plugged in before saving images!
+                </p>
+              </div>
+            </div>
+
             <div className="bg-white p-6 rounded-2xl shadow-sm border">
               <h3 className="text-lg font-bold text-gray-800 border-b pb-3 mb-4">Administrator</h3>
               <input 
@@ -1080,7 +1113,6 @@ const Settings = () => {
             </button>
           </div>
 
-          {/* Library Stats */}
           <div className="grid grid-cols-4 gap-4">
             {[
               { type: 'EGD', color: 'blue' },
@@ -1097,26 +1129,10 @@ const Settings = () => {
             ))}
           </div>
 
-          <ClinicalLibraryBuilder 
-            title="EGD Findings" 
-            data={settings.clinicalLibrary.EGD} 
-            onUpdate={(data) => updateClinicalLibrary('EGD', data)} 
-          />
-          <ClinicalLibraryBuilder 
-            title="Colonoscopy Findings" 
-            data={settings.clinicalLibrary.Colonoscopy} 
-            onUpdate={(data) => updateClinicalLibrary('Colonoscopy', data)} 
-          />
-          <ClinicalLibraryBuilder 
-            title="ERCP Findings" 
-            data={settings.clinicalLibrary.ERCP} 
-            onUpdate={(data) => updateClinicalLibrary('ERCP', data)} 
-          />
-          <ClinicalLibraryBuilder 
-            title="Bronchoscopy Findings" 
-            data={settings.clinicalLibrary.Bronchoscopy} 
-            onUpdate={(data) => updateClinicalLibrary('Bronchoscopy', data)} 
-          />
+          <ClinicalLibraryBuilder title="EGD Findings" data={settings.clinicalLibrary.EGD} onUpdate={(data) => updateClinicalLibrary('EGD', data)} />
+          <ClinicalLibraryBuilder title="Colonoscopy Findings" data={settings.clinicalLibrary.Colonoscopy} onUpdate={(data) => updateClinicalLibrary('Colonoscopy', data)} />
+          <ClinicalLibraryBuilder title="ERCP Findings" data={settings.clinicalLibrary.ERCP} onUpdate={(data) => updateClinicalLibrary('ERCP', data)} />
+          <ClinicalLibraryBuilder title="Bronchoscopy Findings" data={settings.clinicalLibrary.Bronchoscopy} onUpdate={(data) => updateClinicalLibrary('Bronchoscopy', data)} />
         </div>
       )}
 
@@ -1129,6 +1145,11 @@ const Settings = () => {
           <ListManager title="Therapeutic Procedures" items={settings.therapeuticProcedures} onUpdate={(l) => updateList('therapeuticProcedures', l)} />
           <ListManager title="Complications" items={settings.complications} onUpdate={(l) => updateList('complications', l)} />
         </div>
+      )}
+
+      {/* ✅ NEW: SYSTEM HEALTH TAB */}
+      {activeTab === 'monitoring' && (
+        <SystemMonitoring />
       )}
     </div>
   );

@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
-  RefreshCw, Camera, AlertCircle, Video, 
-  Monitor, CheckCircle, XCircle, Usb, Info 
+  RefreshCw, AlertCircle, Monitor, Camera, Video,
+  Info, Maximize, X, Power, Usb
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-const PentaxLiveFeed = ({ onCapture }) => {
+const PentaxLiveFeed = ({ onCapture, onClose }) => {
   const videoRef = useRef(null);
+  const containerRef = useRef(null);
+  const streamRef = useRef(null);
   const [devices, setDevices] = useState([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState('');
   const [stream, setStream] = useState(null);
@@ -16,192 +18,180 @@ const PentaxLiveFeed = ({ onCapture }) => {
   const [showDebug, setShowDebug] = useState(false);
   const [debugLog, setDebugLog] = useState([]);
   const [videoPlaying, setVideoPlaying] = useState(false);
+  
+  const [isFeedActive, setIsFeedActive] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  
+  const [autoDetected, setAutoDetected] = useState(false);
+  const [detectedDeviceName, setDetectedDeviceName] = useState('');
+  
+  const [userSelectedDevice, setUserSelectedDevice] = useState(false);
+  const [isScanning, setIsScanning] = useState(false); // ✅ NEW: Prevent concurrent scans
 
   // ── Debug Logger ──
   const log = useCallback((msg, type = 'info') => {
-    const entry = { 
-      time: new Date().toLocaleTimeString(), 
-      msg, 
-      type 
-    };
-    setDebugLog(prev => [...prev, entry]);
+    const entry = { time: new Date().toLocaleTimeString(), msg, type };
+    setDebugLog(prev => [...prev.slice(-30), entry]);
     console.log(`[PentaxFeed] ${msg}`);
   }, []);
 
-  // ── 1. Get List of ALL Cameras ──
-  const getDevices = async () => {
+  // ── Fullscreen Handler ──
+  useEffect(() => {
+    const handleFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
+
+  const toggleFullscreen = () => {
     try {
+      if (!document.fullscreenElement && containerRef.current) {
+        containerRef.current.requestFullscreen().catch(err => console.log(err));
+      } else if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    } catch (e) {}
+  };
+
+  // ✅ PROPER STOP STREAM WITH FULL CLEANUP
+  const stopStream = useCallback(() => {
+    try {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => {
+          t.stop();
+          t.enabled = false;
+        });
+        streamRef.current = null;
+      }
+
+      if (stream) {
+        stream.getTracks().forEach(t => {
+          t.stop();
+          t.enabled = false;
+        });
+        setStream(null);
+      }
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+        videoRef.current.load();
+        videoRef.current.pause();
+      }
+
+      setVideoPlaying(false);
+      setStreamInfo(null);
+      log('Stream stopped and resources released', 'success');
+    } catch (e) {
+      console.error('Error stopping stream:', e);
+    }
+  }, [stream, log]);
+
+  const ENDOSCOPE_KEYWORDS = [
+    'capture', 'easycap', 'avermedia', 'elgato', 'magewell', 'blackmagic', 
+    'usb video', 'usb2.0 video', 'analog', 'composite', 's-video', 'av to usb',
+    'video grabber', 'frame grabber', 'geniatech', 'yuan', 'hauppauge', 'startech', 
+    'j5create', 'pengo', 'digitnow', 'ucec', 'blueavs'
+  ];
+
+  const isEndoscopeDevice = useCallback((label) => {
+    if (!label) return false;
+    const lowerLabel = label.toLowerCase();
+    
+    if (lowerLabel.includes('obs') || 
+        lowerLabel.includes('virtual camera') || 
+        lowerLabel.includes('virtualcamera')) {
+      return false;
+    }
+    
+    const hasKeyword = ENDOSCOPE_KEYWORDS.some(kw => lowerLabel.includes(kw));
+    const isBuiltIn = lowerLabel.includes('integrated') || 
+                     lowerLabel.includes('built-in') || 
+                     lowerLabel.includes('facetime') ||
+                     lowerLabel.includes('webcam');
+    return hasKeyword || !isBuiltIn;
+  }, []);
+
+  // ✅ MODIFIED: Add scanning flag to prevent concurrent scans
+  const getDevices = useCallback(async () => {
+    if (isScanning) {
+      log('⏭️ Already scanning, skipping...', 'warning');
+      return;
+    }
+
+    try {
+      setIsScanning(true);
       setLoading(true);
       setErrorMsg('');
       setDebugLog([]);
-      log('Scanning for video devices...');
+      setAutoDetected(false);
+      log('🔍 Scanning for video devices...');
 
-      // Request permission to get device labels
       try {
-        const tempStream = await navigator.mediaDevices.getUserMedia({ 
-          video: true 
-        });
+        const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
         tempStream.getTracks().forEach(t => t.stop());
-        log('Camera permission granted', 'success');
       } catch (permErr) {
-        log(`Permission error: ${permErr.message}`, 'error');
-        setErrorMsg('Camera permission denied. Click the 🔒 icon in address bar → Allow Camera');
+        setErrorMsg('Camera permission denied. Allow Camera in browser settings.');
         setLoading(false);
+        setIsScanning(false);
         return;
       }
 
       const allDevices = await navigator.mediaDevices.enumerateDevices();
       const videoInputs = allDevices.filter(d => d.kind === 'videoinput');
 
-      log(`Found ${videoInputs.length} video device(s):`);
-      videoInputs.forEach((d, i) => {
-        log(`  [${i}] "${d.label || 'Unnamed Device'}"`, 
-            d.label.toLowerCase().match(/usb|capture|av|video|cam/) 
-              ? 'success' : 'info'
-        );
-      });
-
       setDevices(videoInputs);
 
       if (videoInputs.length === 0) {
         setErrorMsg('No video devices found. Is the USB capture card plugged in?');
-        log('No devices found!', 'error');
         setLoading(false);
+        setIsScanning(false);
         return;
       }
 
-      // ── Smart Auto-Selection ──
-      // Priority: capture card keywords > OBS Virtual > last device
-      const priorityKeywords = [
-        'capture', 'easycap', 'avermedia', 'elgato', 
-        'magewell', 'blackmagic', 'usb video', 'usb2.0 video',
-        'analog', 'composite', 's-video', 'av to usb',
-        'video grabber', 'frame grabber', 'geniatech',
-        'yuan', 'hauppauge', 'startech', 'j5create',
-        'pengo', 'digitnow', 'ucec', 'BlueAVS'
-      ];
+      if (!userSelectedDevice) {
+        let selectedDevice = videoInputs.find(d => ENDOSCOPE_KEYWORDS.some(kw => d.label.toLowerCase().includes(kw))) 
+                          || videoInputs.find(d => isEndoscopeDevice(d.label)) 
+                          || videoInputs[videoInputs.length - 1];
 
-      const obsVirtual = videoInputs.find(d => 
-        d.label.toLowerCase().includes('obs virtual') ||
-        d.label.toLowerCase().includes('obs-camera')
-      );
+        setSelectedDeviceId(selectedDevice.deviceId);
 
-      const captureCard = videoInputs.find(d => {
-        const label = d.label.toLowerCase();
-        return priorityKeywords.some(kw => label.includes(kw));
-      });
-
-      // Also try: any device that is NOT the built-in laptop camera
-      const externalDevice = videoInputs.find(d => {
-        const label = d.label.toLowerCase();
-        return !label.includes('integrated') && 
-               !label.includes('built-in') && 
-               !label.includes('facetime') &&
-               !label.includes('ir camera') &&
-               !label.includes('laptop');
-      });
-
-      let selectedDevice = null;
-
-      if (captureCard) {
-        selectedDevice = captureCard;
-        log(`Auto-selected CAPTURE CARD: "${captureCard.label}"`, 'success');
-      } else if (obsVirtual) {
-        selectedDevice = obsVirtual;
-        log(`Auto-selected OBS Virtual Camera: "${obsVirtual.label}"`, 'success');
-      } else if (externalDevice) {
-        selectedDevice = externalDevice;
-        log(`Auto-selected external device: "${externalDevice.label}"`, 'success');
+        if (isEndoscopeDevice(selectedDevice.label)) {
+          setAutoDetected(true);
+          setDetectedDeviceName(selectedDevice.label);
+          log(`🎯 Auto-Detected: "${selectedDevice.label}"`, 'success');
+        } else {
+          setDetectedDeviceName(selectedDevice.label);
+        }
       } else {
-        selectedDevice = videoInputs[videoInputs.length - 1];
-        log(`Defaulting to last device: "${selectedDevice.label}"`, 'warning');
+        log(`👤 Keeping user's manual selection`, 'info');
       }
 
-      setSelectedDeviceId(selectedDevice.deviceId);
-
     } catch (err) {
-      console.error(err);
-      log(`Fatal error: ${err.message}`, 'error');
       setErrorMsg('Failed to scan devices. Refresh page and try again.');
+      log(`Error: ${err.message}`, 'error');
     } finally {
       setLoading(false);
+      setIsScanning(false);
     }
-  };
+  }, [log, isEndoscopeDevice, userSelectedDevice, isScanning]);
 
-  // ── 2. Start Stream with Multiple Fallback Attempts ──
-  const startStream = async (deviceId) => {
+  // ✅ START STREAM WITH PROPER CLEANUP
+  const startStream = useCallback(async (deviceId) => {
     if (!deviceId) return;
     
-    // Stop existing stream
-    if (stream) {
-      stream.getTracks().forEach(t => t.stop());
-      setStream(null);
-    }
+    stopStream();
+    await new Promise(resolve => setTimeout(resolve, 300));
     
     setVideoPlaying(false);
     setStreamInfo(null);
     setErrorMsg('');
 
-    // ── ATTEMPT CHAIN ──
-    // Different capture cards need different constraints.
-    // We try from most specific → most generic.
     const attempts = [
-      {
-        name: 'PAL Standard (720×576)',
-        constraints: {
-          video: {
-            deviceId: { exact: deviceId },
-            width: { exact: 720 },
-            height: { exact: 576 },
-            frameRate: { ideal: 25 }
-          }
-        }
-      },
-      {
-        name: 'NTSC Standard (720×480)',
-        constraints: {
-          video: {
-            deviceId: { exact: deviceId },
-            width: { exact: 720 },
-            height: { exact: 480 },
-            frameRate: { ideal: 30 }
-          }
-        }
-      },
-      {
-        name: 'Ideal SD Resolution',
-        constraints: {
-          video: {
-            deviceId: { exact: deviceId },
-            width: { ideal: 720 },
-            height: { ideal: 576 }
-          }
-        }
-      },
-      {
-        name: 'VGA Resolution (640×480)',
-        constraints: {
-          video: {
-            deviceId: { exact: deviceId },
-            width: { ideal: 640 },
-            height: { ideal: 480 }
-          }
-        }
-      },
-      {
-        name: 'Device Only (No Constraints)',
-        constraints: {
-          video: {
-            deviceId: { exact: deviceId }
-          }
-        }
-      },
-      {
-        name: 'Bare Minimum (Any Video)',
-        constraints: {
-          video: true
-        }
-      }
+      { name: 'PAL Standard (720×576)', constraints: { video: { deviceId: { exact: deviceId }, width: { exact: 720 }, height: { exact: 576 }, frameRate: { ideal: 25 } } } },
+      { name: 'NTSC Standard (720×480)', constraints: { video: { deviceId: { exact: deviceId }, width: { exact: 720 }, height: { exact: 480 }, frameRate: { ideal: 30 } } } },
+      { name: 'Ideal SD Resolution', constraints: { video: { deviceId: { exact: deviceId }, width: { ideal: 720 }, height: { ideal: 576 } } } },
+      { name: 'VGA Resolution (640×480)', constraints: { video: { deviceId: { exact: deviceId }, width: { ideal: 640 }, height: { ideal: 480 } } } },
+      { name: 'Device Only', constraints: { video: { deviceId: { exact: deviceId } } } },
+      { name: 'Any Video', constraints: { video: true } }
     ];
 
     for (let i = 0; i < attempts.length; i++) {
@@ -209,343 +199,300 @@ const PentaxLiveFeed = ({ onCapture }) => {
       log(`Attempt ${i + 1}/${attempts.length}: ${attempt.name}...`);
 
       try {
-        const newStream = await navigator.mediaDevices.getUserMedia(
-          attempt.constraints
-        );
-        
-        // SUCCESS — Get stream info
+        const newStream = await navigator.mediaDevices.getUserMedia(attempt.constraints);
         const track = newStream.getVideoTracks()[0];
         const settings = track.getSettings();
         
         log(`✅ Connected! ${settings.width}x${settings.height} @ ${Math.round(settings.frameRate || 0)}fps`, 'success');
-        log(`Track label: "${track.label}"`, 'info');
 
+        streamRef.current = newStream;
         setStream(newStream);
         setStreamInfo({
           resolution: `${settings.width}×${settings.height}`,
           fps: `${Math.round(settings.frameRate || 0)}fps`,
-          device: track.label,
-          attempt: attempt.name
+          device: track.label
         });
 
         if (videoRef.current) {
           videoRef.current.srcObject = newStream;
-          
-          // Wait for video to actually start playing
-          videoRef.current.onloadeddata = () => {
-            log('Video data loaded', 'success');
-          };
-          
+          videoRef.current.onloadeddata = () => log('Video data loaded', 'success');
           videoRef.current.onplaying = () => {
             setVideoPlaying(true);
             log('Video is playing', 'success');
           };
-          
-          // Detect black frames (no signal)
-          setTimeout(() => {
-            checkForBlackFrame();
-          }, 2000);
+          await videoRef.current.play().catch(e => log(`Play error: ${e.message}`, 'error'));
+          setTimeout(() => checkForBlackFrame(), 3000);
         }
 
-        if (i > 0) {
-          toast(`Connected in "${attempt.name}" mode`, { icon: '⚠️' });
-        } else {
-          toast.success('Endoscope feed connected!');
-        }
-        
-        return; // Exit on first success
+        if (i === 0) toast.success('Camera connected!');
+        return; 
         
       } catch (err) {
         log(`❌ ${attempt.name} failed: ${err.message}`, 'error');
       }
     }
 
-    // ALL attempts failed
-    log('All connection attempts failed!', 'error');
-    setErrorMsg(
-      'Could not connect to endoscope. Common fixes:\n' +
-      '1. Reconnect USB capture card\n' +
-      '2. Check if Pentax light source is ON\n' +
-      '3. Try OBS Virtual Camera (see guide below)\n' +
-      '4. Check Device Manager for driver issues'
-    );
-    toast.error('Connection failed — see troubleshooting guide');
-  };
+    setErrorMsg('Could not connect. Check USB and power.');
+    toast.error('Connection failed');
+    setIsFeedActive(false);
+  }, [stopStream, log]);
 
-  // ── 3. Black Frame Detection ──
-  const checkForBlackFrame = () => {
-    if (!videoRef.current) return;
-    
-    const video = videoRef.current;
-    if (video.videoWidth === 0) {
-      log('⚠️ Video has 0 width — no signal detected', 'warning');
-      return;
-    }
+  const checkForBlackFrame = useCallback(() => {
+    try {
+      if (!videoRef.current) return;
+      const video = videoRef.current;
+      if (video.videoWidth === 0) return;
 
-    const canvas = document.createElement('canvas');
-    canvas.width = 64; // Small sample
-    canvas.height = 64;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0, 64, 64);
-    
-    const imageData = ctx.getImageData(0, 0, 64, 64).data;
-    let totalBrightness = 0;
-    
-    for (let i = 0; i < imageData.length; i += 4) {
-      totalBrightness += imageData[i] + imageData[i + 1] + imageData[i + 2];
-    }
-    
-    const avgBrightness = totalBrightness / (64 * 64 * 3);
-    
-    if (avgBrightness < 5) {
-      log('⚠️ BLACK FRAME detected — Feed connected but no video signal from Pentax', 'warning');
-      log('Check: Is the Pentax light source powered ON?', 'warning');
-      log('Check: Is the endoscope connected to the processor?', 'warning');
-      toast('Feed connected but image is black — check Pentax power', { 
-        icon: '⚠️', 
-        duration: 6000 
-      });
-    } else {
-      log(`Image brightness OK (avg: ${avgBrightness.toFixed(1)})`, 'success');
-    }
-  };
-
-  // ── 4. Capture Image ──
-  const captureImage = () => {
-    if (!videoRef.current || !videoPlaying) {
-      toast.error('No active video feed');
-      return;
-    }
-
-    const video = videoRef.current;
-    const vw = video.videoWidth;
-    const vh = video.videoHeight;
-
-    if (vw === 0 || vh === 0) {
-      toast.error('Video not ready');
-      return;
-    }
-
-    // Correct aspect ratio for analog video
-    // PAL 720x576 (1.25:1) should display as 4:3 (1.33:1)
-    // NTSC 720x480 (1.5:1) should display as 4:3
-    const canvas = document.createElement('canvas');
-    
-    // Force 4:3 output for medical correctness
-    const outputHeight = vh;
-    const outputWidth = Math.round(vh * (4 / 3));
-    
-    canvas.width = outputWidth;
-    canvas.height = outputHeight;
-    
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0, outputWidth, outputHeight);
-
-    // Timestamp watermark
-    const fontSize = Math.max(16, Math.floor(canvas.height * 0.035));
-    ctx.font = `bold ${fontSize}px "Courier New", monospace`;
-    ctx.fillStyle = '#ffffff';
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 3;
-    
-    const timestamp = new Date().toLocaleString();
-    const textY = canvas.height - fontSize;
-    ctx.strokeText(timestamp, fontSize, textY);
-    ctx.fillText(timestamp, fontSize, textY);
-
-    canvas.toBlob(blob => {
-      if (!blob) {
-        toast.error('Capture failed');
-        return;
+      const canvas = document.createElement('canvas');
+      canvas.width = 64; 
+      canvas.height = 64;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, 64, 64);
+      
+      const imageData = ctx.getImageData(0, 0, 64, 64).data;
+      let totalBrightness = 0;
+      for (let i = 0; i < imageData.length; i += 4) {
+        totalBrightness += imageData[i] + imageData[i + 1] + imageData[i + 2];
       }
-      const file = new File(
-        [blob], 
-        `endo-${Date.now()}.jpg`, 
-        { type: 'image/jpeg' }
-      );
-      onCapture(file);
-      toast.success(`Captured (${outputWidth}×${outputHeight})`);
-    }, 'image/jpeg', 0.95);
-  };
+      
+      const avgBrightness = totalBrightness / (64 * 64 * 3);
+      
+      if (avgBrightness < 5) {
+        log('⚠️ BLACK FRAME - Check Pentax power', 'warning');
+      }
+    } catch (e) {}
+  }, [log]);
 
-  // ── Lifecycle ──
+  // ✅ FIXED: Remove dependency loop
   useEffect(() => {
     getDevices();
-
-    // Listen for device changes (USB plug/unplug)
+    
     const handleDeviceChange = () => {
-      log('🔌 Device change detected! Rescanning...', 'warning');
-      toast('USB device change detected', { icon: '🔌' });
+      log('🔌 Device change detected');
       getDevices();
     };
     
-    navigator.mediaDevices.addEventListener(
-      'devicechange', handleDeviceChange
-    );
-
+    navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
+    
     return () => {
-      navigator.mediaDevices.removeEventListener(
-        'devicechange', handleDeviceChange
-      );
-      if (stream) stream.getTracks().forEach(t => t.stop());
+      navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
+      stopStream();
     };
-  }, []);
-
-  useEffect(() => {
-    if (selectedDeviceId) startStream(selectedDeviceId);
-  }, [selectedDeviceId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // ✅ Empty array - only run on mount/unmount
 
   return (
-    <div className="bg-black rounded-xl overflow-hidden border border-gray-700 
-                    shadow-lg">
-      
-      {/* ── Video Display ── */}
-      <div className="relative aspect-[4/3] bg-gray-900 flex items-center 
-                      justify-center">
+    <div ref={containerRef} className={`bg-black flex flex-col w-full h-full transition-all duration-500 ${isFullscreen ? 'fixed inset-0 z-[9999]' : 'relative overflow-hidden'}`}>
+
+      <div className={`px-2 py-1.5 bg-gray-800 flex justify-between items-center border-b border-gray-700 ${isFullscreen ? 'absolute bottom-0 left-0 right-0 z-50 bg-black/90' : ''}`}>
+        <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto custom-scrollbar flex-1">
+          
+          <button 
+            onClick={() => {
+              setUserSelectedDevice(false);
+              getDevices();
+            }} 
+            className="p-1.5 bg-gray-700 rounded text-white hover:bg-gray-600 transition-colors" 
+            title="Refresh Camera List"
+          >
+            <RefreshCw size={14} />
+          </button>
+
+          {autoDetected && (
+            <div className="flex items-center gap-1 px-2 py-1 bg-green-600/20 border border-green-500/30 rounded text-green-400 text-[9px] font-bold">
+              <Usb size={10} /> AUTO
+            </div>
+          )}
+
+          <select 
+            className="bg-gray-700 text-white text-[10px] sm:text-xs rounded px-2 py-1 outline-none w-[100px] sm:w-[140px] truncate" 
+            value={selectedDeviceId} 
+            onChange={(e) => {
+              setSelectedDeviceId(e.target.value);
+              setUserSelectedDevice(true);
+              setAutoDetected(false);
+              if (isFeedActive) startStream(e.target.value);
+            }}
+          >
+            {devices.length === 0 && <option>No devices found</option>}
+            {devices.map(d => (
+              <option key={d.deviceId} value={d.deviceId}>
+                {d.label || `Camera ${d.deviceId.slice(0,5)}...`}
+              </option>
+            ))}
+          </select>
+
+          <button 
+            onClick={() => {
+              if (isFeedActive) { 
+                stopStream(); 
+                setIsFeedActive(false); 
+              } else { 
+                setIsFeedActive(true); 
+                startStream(selectedDeviceId); 
+              }
+            }} 
+            className={`px-3 py-1 rounded text-[9px] sm:text-[10px] font-bold text-white transition-all whitespace-nowrap shadow-sm ${isFeedActive ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+          >
+            {isFeedActive ? 'STOP' : 'START'}
+          </button>
+
+          <button 
+            onClick={() => setShowDebug(!showDebug)} 
+            className={`p-1.5 rounded-full transition-colors ${showDebug ? 'bg-blue-500 text-white' : 'bg-gray-700 text-gray-300 hover:text-white'}`}
+          >
+            <Info size={14}/>
+          </button>
+        </div>
         
-        {loading ? (
-          <div className="text-gray-400 animate-pulse flex flex-col 
-                          items-center gap-2">
-            <RefreshCw className="animate-spin" size={32} />
-            <span className="text-sm">Scanning USB devices...</span>
-          </div>
-        ) : errorMsg ? (
-          <div className="text-red-400 text-center p-6 max-w-md">
-            <AlertCircle size={40} className="mx-auto mb-3" />
-            <p className="whitespace-pre-line text-sm leading-relaxed">
-              {errorMsg}
-            </p>
+        <div className="flex items-center gap-1.5 ml-2">
+          <button onClick={toggleFullscreen} className="p-1.5 bg-gray-700 rounded text-gray-300 hover:text-white transition-colors">
+            <Maximize size={14}/>
+          </button>
+          {onClose && (
             <button 
-              onClick={getDevices} 
-              className="mt-4 px-6 py-2 bg-gray-800 rounded-lg 
-                         hover:bg-gray-700 transition-colors text-sm
-                         flex items-center gap-2 mx-auto"
+              onClick={() => { 
+                stopStream(); 
+                onClose(); 
+              }} 
+              className="p-1.5 bg-red-600 hover:bg-red-700 rounded text-white transition-colors"
             >
-              <RefreshCw size={14} /> Retry Connection
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className={`relative flex items-center justify-center bg-black flex-1 min-h-[250px] ${isFullscreen ? 'h-screen w-screen' : 'w-full h-full'}`}>
+        
+        {loading && (
+          <div className="absolute inset-0 z-[100] bg-black/90 flex flex-col items-center justify-center text-white p-4 text-center">
+            <RefreshCw className="animate-spin text-gray-400 mb-4" size={40} />
+            <h2 className="text-sm font-bold uppercase tracking-widest text-gray-400">Scanning USB Devices</h2>
+          </div>
+        )}
+
+        {errorMsg && !loading && (
+          <div className="absolute inset-0 z-[100] bg-red-900/90 flex flex-col items-center justify-center text-white p-4 text-center">
+            <AlertCircle size={32} className="mb-4 animate-bounce" />
+            <p className="text-sm opacity-80 max-w-xs">{errorMsg}</p>
+            <button 
+              onClick={() => {
+                setUserSelectedDevice(false);
+                getDevices();
+              }} 
+              className="mt-6 px-6 py-2 bg-white text-red-900 font-bold rounded-full hover:scale-105"
+            >
+              Retry
             </button>
           </div>
-        ) : (
-          <>
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-contain"
-            />
-            
-            {/* Stream Info Overlay */}
-            {streamInfo && videoPlaying && (
-              <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-sm 
-                              px-2 py-1 rounded text-[10px] text-green-400 
-                              font-mono flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 bg-green-500 rounded-full 
-                                animate-pulse" />
-                {streamInfo.resolution} • {streamInfo.fps}
-              </div>
-            )}
+        )}
 
-            {/* No Signal Warning */}
-            {stream && !videoPlaying && (
-              <div className="absolute inset-0 flex items-center justify-center 
-                              bg-black/80">
-                <div className="text-yellow-400 text-center">
-                  <Monitor size={40} className="mx-auto mb-2 animate-pulse" />
-                  <p className="text-sm font-bold">Waiting for video signal...</p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    Ensure Pentax light source is ON
-                  </p>
-                </div>
+        {!isFeedActive && !loading && !errorMsg && (
+          <div className="text-center flex flex-col gap-4 z-50">
+            <button 
+              onClick={() => { 
+                setIsFeedActive(true); 
+                startStream(selectedDeviceId); 
+              }} 
+              className="flex flex-col items-center gap-2 group"
+            >
+              <div className="w-14 h-14 bg-gray-800 rounded-full flex items-center justify-center border border-white/10 shadow-inner group-hover:bg-gray-700 transition-colors">
+                <Power size={24} className="text-green-500" />
               </div>
+              <span className="text-gray-500 text-[10px] font-bold uppercase tracking-widest group-hover:text-gray-300">Start Feed</span>
+            </button>
+            {detectedDeviceName && (
+              <p className="text-gray-500 text-[10px]">
+                {userSelectedDevice ? 'Selected' : 'Detected'}: {detectedDeviceName.substring(0, 30)}...
+              </p>
             )}
-          </>
+          </div>
+        )}
+
+        <video 
+          ref={videoRef} 
+          autoPlay 
+          playsInline 
+          muted 
+          className={`w-full h-full object-contain ${(isFeedActive && !loading && !errorMsg) ? 'block' : 'hidden'}`} 
+        />
+        
+        {isFeedActive && stream && !videoPlaying && !loading && !errorMsg && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-[50]">
+            <div className="text-yellow-400 text-center">
+              <Monitor size={40} className="mx-auto mb-2 animate-pulse" />
+              <p className="text-sm font-bold uppercase tracking-widest">Waiting for signal</p>
+              <p className="text-xs text-gray-400 mt-1">Ensure camera is on</p>
+            </div>
+          </div>
+        )}
+
+        {isFeedActive && videoPlaying && !loading && !errorMsg && (
+          <div className="absolute top-0 left-0 right-0 p-3 z-50 flex justify-between items-start pointer-events-none">
+            <div className="bg-black/60 backdrop-blur-sm px-2 py-1 rounded text-[9px] text-green-400 font-mono flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+              {streamInfo?.resolution} • {streamInfo?.fps}
+            </div>
+          </div>
+        )}
+
+        {isFeedActive && videoPlaying && !loading && !errorMsg && (
+          <div className="absolute bottom-4 flex justify-center w-full pointer-events-none z-[60]">
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                const btn = e.currentTarget;
+                btn.style.transform = 'scale(0.9)';
+                setTimeout(() => btn.style.transform = 'scale(1)', 150);
+                
+                const container = containerRef.current;
+                if(container) {
+                  container.click(); 
+                }
+              }} 
+              className="pointer-events-auto p-4 bg-white/90 text-black rounded-full shadow-[0_0_20px_rgba(0,0,0,0.4)] border-4 border-gray-300 hover:bg-white transition-transform duration-100" 
+              title="Capture Image"
+            >
+              <Camera size={26}/>
+            </button>
+          </div>
         )}
       </div>
 
-      {/* ── Controls Bar ── */}
-      <div className="p-3 bg-gray-800 space-y-2">
-        <div className="flex gap-2 justify-between items-center">
-          
-          {/* Device Selector */}
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <Usb size={16} className="text-gray-400 flex-shrink-0" />
-            <select
-              className="bg-gray-700 text-white text-xs p-2 rounded 
-                         w-full border border-gray-600 outline-none 
-                         truncate"
-              value={selectedDeviceId}
-              onChange={(e) => setSelectedDeviceId(e.target.value)}
-            >
-              {devices.length === 0 && (
-                <option>No devices found</option>
-              )}
-              {devices.map(d => (
-                <option key={d.deviceId} value={d.deviceId}>
-                  {d.label || `Camera ${d.deviceId.slice(0, 8)}...`}
-                </option>
-              ))}
-            </select>
+      {showDebug && (
+        <div className="absolute bottom-20 left-2 right-2 sm:left-auto sm:right-4 sm:w-96 z-[1000] bg-black/95 backdrop-blur-xl flex flex-col border border-white/10 rounded-lg shadow-2xl">
+          <div className="flex justify-between items-center p-3 border-b border-white/10">
+            <h3 className="text-white font-bold text-sm flex items-center gap-2">
+              <Info size={16} className="text-blue-400"/> Diagnostics
+            </h3>
             <button 
-              onClick={getDevices} 
-              className="text-gray-400 hover:text-white flex-shrink-0" 
-              title="Refresh"
+              onClick={() => setShowDebug(false)} 
+              className="p-1.5 hover:bg-white/20 rounded text-white transition-all"
             >
-              <RefreshCw size={16} />
+              <X size={16} />
             </button>
           </div>
-
-          {/* Capture Button */}
-          <button
-            onClick={captureImage}
-            disabled={!videoPlaying}
-            className="bg-blue-600 hover:bg-blue-700 
-                       disabled:opacity-30 disabled:cursor-not-allowed 
-                       text-white px-6 py-2 rounded flex items-center 
-                       gap-2 font-bold text-sm transition-all shadow-md 
-                       active:scale-95 flex-shrink-0"
-          >
-            <Camera size={18} /> CAPTURE
-          </button>
-        </div>
-
-        {/* Debug Toggle */}
-        <button
-          onClick={() => setShowDebug(!showDebug)}
-          className="text-gray-500 hover:text-gray-300 text-[10px] 
-                     flex items-center gap-1 transition-colors"
-        >
-          <Info size={12} />
-          {showDebug ? 'Hide' : 'Show'} Diagnostics
-        </button>
-
-        {/* Debug Panel */}
-        {showDebug && (
-          <div className="bg-gray-900 rounded-lg p-3 max-h-48 
-                          overflow-y-auto border border-gray-700">
-            <div className="font-mono text-[11px] space-y-0.5">
+          <div className="flex-1 overflow-y-auto p-3 max-h-48">
+            <div className="font-mono text-[10px] space-y-1">
               {debugLog.map((entry, i) => (
                 <div 
                   key={i} 
                   className={`flex gap-2 ${
-                    entry.type === 'error' ? 'text-red-400' :
-                    entry.type === 'success' ? 'text-green-400' :
+                    entry.type === 'error' ? 'text-red-400' : 
+                    entry.type === 'success' ? 'text-green-400' : 
                     entry.type === 'warning' ? 'text-yellow-400' :
                     'text-gray-400'
                   }`}
                 >
-                  <span className="text-gray-600 flex-shrink-0">
-                    {entry.time}
-                  </span>
+                  <span className="text-gray-600 flex-shrink-0">{entry.time}</span>
                   <span>{entry.msg}</span>
                 </div>
               ))}
-              {debugLog.length === 0 && (
-                <span className="text-gray-600">No logs yet...</span>
-              )}
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

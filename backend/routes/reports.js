@@ -1,3 +1,5 @@
+
+
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
@@ -7,454 +9,790 @@ const Report = require('../models/Report');
 const Patient = require('../models/Patient');
 const { auth } = require('../middleware/auth');
 
-// =================================================================
-// ✅ LOCAL STORAGE SETUP (100% Offline)
-// =================================================================
+// ✅ FIX 1: Add async error wrapper at the top
+const asyncHandler = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
+
+// ✅ FIX 2: Wrap fs operations in try-catch
 const getUploadsDir = (req) => {
-  if (req && req.app && req.app.locals && req.app.locals.uploadsDir) {
-    return req.app.locals.uploadsDir;
+  try {
+    if (req && req.app && req.app.locals && req.app.locals.uploadsDir) {
+      return req.app.locals.uploadsDir;
+    }
+  } catch (e) {
+    console.error('Error getting uploadsDir:', e);
   }
   return path.join(__dirname, '../uploads');
 };
 
 const ensureDirectoryExists = (dirPath) => {
-  if (!fs.existsSync(dirPath)) {
-    fs.mkdirSync(dirPath, { recursive: true });
+  try {
+    if (!fs.existsSync(dirPath)) {
+      fs.mkdirSync(dirPath, { recursive: true });
+    }
+  } catch (e) {
+    console.error('Failed to create directory:', dirPath, e.message);
   }
 };
 
-// Configure Multer for local disk storage
+const sanitizeFolderName = (name) => {
+  if (!name || typeof name !== 'string') return 'Unknown';
+  return name
+    .replace(/[<>:"/\\|?*]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '')
+    .substring(0, 100) || 'Unknown';
+};
+
+// ✅ FIX 3: Safe file move function
+const safeFileMove = (oldPath, newPath) => {
+  try {
+    if (fs.existsSync(oldPath)) {
+      fs.renameSync(oldPath, newPath);
+      return true;
+    }
+  } catch (e) {
+    console.error('File move failed:', e.message);
+    // Try copy + delete as fallback
+    try {
+      fs.copyFileSync(oldPath, newPath);
+      fs.unlinkSync(oldPath);
+      return true;
+    } catch (e2) {
+      console.error('Copy fallback also failed:', e2.message);
+    }
+  }
+  return false;
+};
+
+// Configure Multer with error handling
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    const uploadsDir = getUploadsDir(req);
-    const imagesDir = path.join(uploadsDir, 'endoscopy-images');
-    ensureDirectoryExists(imagesDir);
-    cb(null, imagesDir);
+    try {
+      const uploadsDir = getUploadsDir(req);
+      const imagesDir = path.join(uploadsDir, 'endoscopy-images');
+      ensureDirectoryExists(imagesDir);
+      cb(null, imagesDir);
+    } catch (e) {
+      cb(e, null);
+    }
   },
   filename: function (req, file, cb) {
-    const ext = path.extname(file.originalname) || '.jpg';
-    const filename = `endo-${Date.now()}-${Math.round(Math.random() * 1E9)}${ext}`;
-    cb(null, filename);
+    try {
+      const ext = path.extname(file.originalname) || '.jpg';
+      const filename = `endo-${Date.now()}-${Math.round(Math.random() * 1E9)}${ext}`;
+      cb(null, filename);
+    } catch (e) {
+      cb(e, null);
+    }
   }
 });
 
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 100 * 1024 * 1024 },
+  limits: { fileSize: 1000 * 1024 * 1024 },
   fileFilter: function (req, file, cb) {
-    if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')) {
+    if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/') || file.mimetype === 'application/pdf') {
       cb(null, true);
     } else {
-      cb(new Error('Only image and video files are allowed'));
+      cb(new Error('Only image, video, and PDF files are allowed'));
     }
   }
 });
 
-// Helper function to delete local file
-const deleteLocalFile = (filePath, uploadsDir) => {
-  if (!filePath) return;
-  
-  try {
-    let fullPath;
-    if (filePath.startsWith('uploads/')) {
-      const relativePath = filePath.replace('uploads/', '');
-      fullPath = path.join(uploadsDir, relativePath);
-    } else {
-      fullPath = path.join(uploadsDir, 'endoscopy-images', path.basename(filePath));
+// ✅ FIX 4: Add multer error handler middleware
+const handleMulterError = (err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ message: 'File too large. Maximum size is 100MB.' });
     }
-    
-    if (fs.existsSync(fullPath)) {
-      fs.unlinkSync(fullPath);
-      console.log('🗑️ Deleted local file:', fullPath);
+    if (err.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({ message: 'Too many files.' });
     }
-  } catch (err) {
-    console.error('Failed to delete file:', err.message);
+    return res.status(400).json({ message: `Upload error: ${err.message}` });
   }
+  if (err) {
+    return res.status(400).json({ message: err.message });
+  }
+  next();
 };
 
+// ✅ FIX 5: Validate ObjectId helper
+const isValidObjectId = (id) => {
+  return id && /^[0-9a-fA-F]{24}$/.test(id);
+};
+
+
 // =================================================================
-// ✅ GET ALL REPORTS
+// UPLOAD FRONTEND-GENERATED PDF TO PATIENT FOLDER
 // =================================================================
-router.get('/', auth, async function(req, res) {
-  try {
-    const { search, status, patient, page = 1, limit = 20 } = req.query;
-    let query = {};
-
-    if (patient) query.patient = patient;
-    if (status) query.status = status;
-
-    if (search) {
-      const patients = await Patient.find({
-        $or: [
-          { name: { $regex: search, $options: 'i' } },
-          { patientId: { $regex: search, $options: 'i' } }
-        ]
-      }).select('_id');
-
-      const searchConditions = [
-        { reportId: { $regex: search, $options: 'i' } },
-        { patient: { $in: patients.map(function(p) { return p._id; }) } }
-      ];
-
-      if (query.$or) {
-        query.$and = [{ $or: searchConditions }];
-      } else {
-        query.$or = searchConditions;
-      }
-    }
-
-    const reports = await Report.find(query)
-      .populate('patient', 'patientId name age sex')
-      .populate('endoscopist', 'name qualification')
-      .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip((parseInt(page) - 1) * parseInt(limit));
-
-    const count = await Report.countDocuments(query);
-
-    res.json({
-      reports: reports,
-      totalPages: Math.ceil(count / limit),
-      currentPage: parseInt(page),
-      total: count
-    });
-  } catch (error) {
-    console.error('Get Reports Error:', error);
-    res.status(500).json({ message: error.message });
+router.post('/:id/upload-pdf', auth, upload.single('pdf'), asyncHandler(async function(req, res) {
+  if (!req.file) {
+    return res.status(400).json({ message: 'No PDF file uploaded' });
   }
-});
+
+  const report = await Report.findById(req.params.id).populate('patient', 'name');
+  if (!report) return res.status(404).json({ message: 'Report not found' });
+
+  const patientName = report.patient?.name || 'Unknown';
+  const safeName = sanitizeFolderName(patientName);
+  
+  const uploadsDir = getUploadsDir(req);
+  const pdfDir = path.join(uploadsDir, 'endoscopy-images', safeName); // Saving in the same folder as images
+  ensureDirectoryExists(pdfDir);
+
+  const oldPath = req.file.path;
+  const newPath = path.join(pdfDir, req.file.filename);
+  
+  safeFileMove(oldPath, newPath);
+
+  const savedPath = `uploads/endoscopy-images/${safeName}/${req.file.filename}`;
+  
+  report.pdfPath = savedPath;
+  report.pdfGeneratedAt = new Date();
+  await report.save();
+
+  console.log('✅ Frontend PDF saved to folder:', savedPath);
+  res.json({ success: true, path: savedPath });
+}));
 
 // =================================================================
-// ✅ CREATE NEW REPORT
+// GET ALL REPORTS
 // =================================================================
-router.post('/', auth, async function(req, res) {
-  try {
-    console.log('📝 Creating new report...');
-    
-    const reportData = { ...req.body };
-    
-    // Validate patient ID
-    if (!reportData.patient) {
-      return res.status(400).json({ message: 'Patient is required' });
-    }
-    
-    // Ensure patient is a string ID, not an object
-    if (typeof reportData.patient === 'object' && reportData.patient !== null) {
-      reportData.patient = reportData.patient._id;
-    }
-    
-    // Clean up therapeutic procedures
-    if (reportData.therapeutic && Array.isArray(reportData.therapeutic.procedures)) {
-      reportData.therapeutic.procedures = reportData.therapeutic.procedures.filter(function(p) { return p.type; });
-    } else if (reportData.therapeutic) {
-      reportData.therapeutic.procedures = [];
-    }
+router.get('/', auth, asyncHandler(async function(req, res) {
+  const { search, status, patient, page = 1, limit = 20 } = req.query;
+  
+  // ✅ FIX 6: Sanitize pagination
+  const pageNum = Math.max(1, parseInt(page) || 1);
+  const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
+  
+  let query = {};
 
-    // Remove MongoDB fields
-    delete reportData._id;
-    delete reportData.__v;
-    delete reportData.createdAt;
-    delete reportData.updatedAt;
-    delete reportData.images;
-    delete reportData.videos;
-
-    const report = new Report({
-      ...reportData,
-      createdBy: req.user._id,
-      endoscopist: req.user._id
-    });
-    
-    await report.save();
-    await report.populate('patient');
-    
-    console.log('✅ Report created:', report._id);
-    res.status(201).json(report);
-  } catch (error) {
-    console.error('❌ Create Report Error:', error);
-    res.status(400).json({ message: error.message });
+  if (patient && isValidObjectId(patient)) {
+    query.patient = patient;
   }
-});
-
-// =================================================================
-// ✅ GET SINGLE REPORT
-// =================================================================
-router.get('/:id', auth, async function(req, res) {
-  try {
-    const report = await Report.findById(req.params.id)
-      .populate('patient')
-      .populate('endoscopist', 'name qualification signature')
-      .populate('createdBy', 'name');
-      
-    if (!report) {
-      return res.status(404).json({ message: 'Report not found' });
-    }
-    
-    res.json(report);
-  } catch (error) {
-    console.error('Get Report Error:', error);
-    res.status(500).json({ message: error.message });
+  if (status) {
+    query.status = status;
   }
-});
 
-// =================================================================
-// ✅ UPDATE REPORT
-// =================================================================
-router.put('/:id', auth, async function(req, res) {
-  try {
-    const report = await Report.findById(req.params.id);
-    if (!report) {
-      return res.status(404).json({ message: 'Report not found' });
-    }
+  if (search && search.trim()) {
+    const patients = await Patient.find({
+      $or: [
+        { name: { $regex: search, $options: 'i' } },
+        { patientId: { $regex: search, $options: 'i' } }
+      ]
+    }).select('_id');
 
-    const updateData = { ...req.body };
-    
-    // Clean up MongoDB fields
-    delete updateData._id;
-    delete updateData.__v;
-    delete updateData.createdAt;
-    delete updateData.updatedAt;
-    delete updateData.images;
-    delete updateData.videos;
-
-    // Ensure patient is a string ID
-    if (updateData.patient && typeof updateData.patient === 'object') {
-      updateData.patient = updateData.patient._id;
-    }
-
-    // Clean therapeutic procedures
-    if (updateData.therapeutic && Array.isArray(updateData.therapeutic.procedures)) {
-      updateData.therapeutic.procedures = updateData.therapeutic.procedures.filter(function(p) { return p.type; });
-    }
-
-    report.set(updateData);
-    report.lastModifiedBy = req.user._id;
-
-    await report.save();
-    await report.populate('patient');
-    
-    console.log('✅ Report updated:', report._id);
-    res.json(report);
-  } catch (error) {
-    console.error('Update Report Error:', error);
-    res.status(400).json({ message: error.message });
+    query.$or = [
+      { reportId: { $regex: search, $options: 'i' } },
+      { patient: { $in: patients.map(p => p._id) } }
+    ];
   }
-});
+
+  const reports = await Report.find(query)
+    .populate('patient', 'patientId name age sex')
+    .populate('endoscopist', 'name qualification')
+    .sort({ createdAt: -1 })
+    .limit(limitNum)
+    .skip((pageNum - 1) * limitNum);
+
+  const count = await Report.countDocuments(query);
+
+  res.json({
+    reports,
+    totalPages: Math.ceil(count / limitNum),
+    currentPage: pageNum,
+    total: count
+  });
+}));
 
 // =================================================================
-// ✅ FINALIZE REPORT
+// CREATE NEW REPORT
 // =================================================================
-router.post('/:id/finalize', auth, async function(req, res) {
-  try {
-    const report = await Report.findById(req.params.id);
-    if (!report) {
-      return res.status(404).json({ message: 'Report not found' });
-    }
-    
-    report.status = 'finalized';
-    report.finalizedAt = new Date();
-    report.finalizedBy = req.user._id;
-    await report.save();
-    
-    console.log('✅ Report finalized:', report._id);
-    res.json({ message: 'Report finalized successfully', report: report });
-  } catch (error) {
-    console.error('Finalize Error:', error);
-    res.status(400).json({ message: error.message });
+router.post('/', auth, asyncHandler(async function(req, res) {
+  console.log('📝 Creating new report...');
+
+  const reportData = { ...req.body };
+
+  // ✅ FIX 7: Validate patient exists
+  if (!reportData.patient) {
+    return res.status(400).json({ message: 'Patient is required' });
   }
-});
 
-// =================================================================
-// 📸 CAPTURE ROUTE (Base64 → Local Disk)
-// =================================================================
-router.post('/:id/capture', auth, async function(req, res) {
-  try {
-    const { image, tag } = req.body;
-    if (!image) {
-      return res.status(400).json({ message: 'No image data provided' });
-    }
+  const patientId = typeof reportData.patient === 'object' 
+    ? reportData.patient._id 
+    : reportData.patient;
 
-    const report = await Report.findById(req.params.id);
-    if (!report) {
-      return res.status(404).json({ message: 'Report not found' });
-    }
-
-    const uploadsDir = getUploadsDir(req);
-    const imagesDir = path.join(uploadsDir, 'endoscopy-images');
-    ensureDirectoryExists(imagesDir);
-
-    // Convert base64 to buffer
-    const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
-    const buffer = Buffer.from(base64Data, 'base64');
-
-    // Generate unique filename and save to disk
-    const filename = 'endo-' + Date.now() + '-' + Math.round(Math.random() * 1E9) + '.jpg';
-    const filepath = path.join(imagesDir, filename);
-    
-    fs.writeFileSync(filepath, buffer);
-    console.log('💾 Captured image saved:', filename);
-
-    const newImage = {
-      filename: filename,
-      path: 'uploads/endoscopy-images/' + filename,
-      cloudinaryId: null,
-      caption: '',
-      taggedOrgan: tag || '',
-      isSelected: true
-    };
-
-    report.images.push(newImage);
-    await report.save();
-
-    res.json({ message: 'Snapshot captured', image: newImage });
-  } catch (error) {
-    console.error('Capture Error:', error);
-    res.status(500).json({ message: error.message });
+  if (!isValidObjectId(patientId)) {
+    return res.status(400).json({ message: 'Invalid patient ID format' });
   }
-});
+
+  // Verify patient exists
+  const patientExists = await Patient.findById(patientId);
+  if (!patientExists) {
+    return res.status(400).json({ message: 'Patient not found' });
+  }
+
+  reportData.patient = patientId;
+
+  if (reportData.therapeutic && Array.isArray(reportData.therapeutic.procedures)) {
+    reportData.therapeutic.procedures = reportData.therapeutic.procedures.filter(p => p && p.type);
+  } else if (reportData.therapeutic) {
+    reportData.therapeutic.procedures = [];
+  }
+
+  // Clean immutable fields
+  delete reportData._id;
+  delete reportData.__v;
+  delete reportData.createdAt;
+  delete reportData.updatedAt;
+  delete reportData.images;
+  delete reportData.videos;
+  delete reportData.poolImages;
+
+  const report = new Report({
+    ...reportData,
+    createdBy: req.user._id,
+    endoscopist: req.user._id
+  });
+
+  await report.save();
+  await report.populate('patient');
+
+  console.log('✅ Report created:', report._id);
+  res.status(201).json(report);
+}));
 
 // =================================================================
-// 📤 MULTIPLE IMAGE UPLOAD (Multer → Local Disk)
+// GET SINGLE REPORT
 // =================================================================
-router.post('/:id/images', auth, upload.array('images', 10), async function(req, res) {
+router.get('/:id', auth, asyncHandler(async function(req, res) {
+  if (!isValidObjectId(req.params.id)) {
+    return res.status(400).json({ message: 'Invalid report ID format' });
+  }
+
+  const report = await Report.findById(req.params.id)
+    .populate('patient')
+    .populate('endoscopist', 'name qualification signature')
+    .populate('createdBy', 'name');
+
+  if (!report) {
+    return res.status(404).json({ message: 'Report not found' });
+  }
+
+  res.json(report);
+}));
+
+// =================================================================
+// UPDATE REPORT
+// =================================================================
+router.put('/:id', auth, asyncHandler(async function(req, res) {
+  if (!isValidObjectId(req.params.id)) {
+    return res.status(400).json({ message: 'Invalid report ID format' });
+  }
+
+  const report = await Report.findById(req.params.id);
+  if (!report) {
+    return res.status(404).json({ message: 'Report not found' });
+  }
+
+  const updateData = { ...req.body };
+
+  delete updateData._id;
+  delete updateData.__v;
+  delete updateData.createdAt;
+  delete updateData.updatedAt;
+
+  if (updateData.patient && typeof updateData.patient === 'object') {
+    updateData.patient = updateData.patient._id;
+  }
+
+  if (updateData.therapeutic && Array.isArray(updateData.therapeutic.procedures)) {
+    updateData.therapeutic.procedures = updateData.therapeutic.procedures.filter(p => p && p.type);
+  }
+
+  report.set(updateData);
+  report.lastModifiedBy = req.user._id;
+
+  await report.save();
+  await report.populate('patient');
+
+  console.log('✅ Report updated:', report._id);
+  res.json(report);
+}));
+
+// =================================================================
+// AUTO-SAVE IMAGE TO PATIENT FOLDER
+// =================================================================
+router.post('/auto-save', auth, upload.single('image'), handleMulterError, asyncHandler(async function(req, res) {
+  const patientName = req.body.patientName;
+  if (!patientName) {
+    return res.status(400).json({ message: 'patientName is required' });
+  }
+  if (!req.file) {
+    return res.status(400).json({ message: 'No image file provided' });
+  }
+
+  const safeName = sanitizeFolderName(patientName);
+  const uploadsDir = getUploadsDir(req);
+  const patientDir = path.join(uploadsDir, 'endoscopy-images', safeName);
+  ensureDirectoryExists(patientDir);
+
+  const oldPath = req.file.path;
+  const newPath = path.join(patientDir, req.file.filename);
+
+  safeFileMove(oldPath, newPath);
+
+  const savedPath = 'uploads/endoscopy-images/' + safeName + '/' + req.file.filename;
+  console.log('📸 Auto-saved capture:', savedPath);
+
+  res.json({
+    success: true,
+    path: savedPath,
+    folder: safeName,
+    filename: req.file.filename
+  });
+}));
+
+// =================================================================
+// FINALIZE REPORT
+// =================================================================
+router.post('/:id/finalize', auth, asyncHandler(async function(req, res) {
+  if (!isValidObjectId(req.params.id)) {
+    return res.status(400).json({ message: 'Invalid report ID format' });
+  }
+
+  const report = await Report.findById(req.params.id);
+  if (!report) {
+    return res.status(404).json({ message: 'Report not found' });
+  }
+
+  report.status = 'finalized';
+  report.finalizedAt = new Date();
+  report.finalizedBy = req.user._id;
+  await report.save();
+
+  console.log('✅ Report finalized:', report._id);
+  res.json({ message: 'Report finalized successfully', report });
+}));
+
+// =================================================================
+// SAVE ALL IMAGES (SLOTTED + POOL)
+// =================================================================
+router.post('/:id/save-all-images', auth, upload.array('images', 50), handleMulterError, asyncHandler(async function(req, res) {
+  if (!isValidObjectId(req.params.id)) {
+    return res.status(400).json({ message: 'Invalid report ID format' });
+  }
+
+  const report = await Report.findById(req.params.id).populate('patient', 'name');
+  if (!report) {
+    return res.status(404).json({ message: 'Report not found' });
+  }
+
+  const patientName = report.patient?.name || 'Unknown';
+  const safeName = sanitizeFolderName(patientName);
+  const uploadsDir = getUploadsDir(req);
+  const patientDir = path.join(uploadsDir, 'endoscopy-images', safeName);
+  ensureDirectoryExists(patientDir);
+
+  // ✅ FIX 8: Safe parsing of form data arrays
+  let slotIndices = [];
+  let captions = [];
+  let existingPaths = [];
+
   try {
-    const report = await Report.findById(req.params.id);
-    if (!report) {
-      return res.status(404).json({ message: 'Report not found' });
-    }
-
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ message: 'No image files provided' });
-    }
-
-    var tags = [];
-    var captions = [];
-    
-    if (req.body.tags) {
-      tags = Array.isArray(req.body.tags) ? req.body.tags : req.body.tags.split(',');
+    if (req.body.slotIndices) {
+      slotIndices = Array.isArray(req.body.slotIndices)
+        ? req.body.slotIndices.map(Number)
+        : String(req.body.slotIndices).split(',').map(Number);
     }
     if (req.body.captions) {
-      captions = Array.isArray(req.body.captions) ? req.body.captions : req.body.captions.split(',');
+      captions = Array.isArray(req.body.captions)
+        ? req.body.captions
+        : String(req.body.captions).split('|||');
     }
+    if (req.body.existingPaths) {
+      existingPaths = Array.isArray(req.body.existingPaths)
+        ? req.body.existingPaths
+        : String(req.body.existingPaths).split('|||');
+    }
+  } catch (e) {
+    console.error('Error parsing form data:', e);
+  }
 
-    var uploadedImages = [];
-    for (var i = 0; i < req.files.length; i++) {
-      var file = req.files[i];
-      console.log('💾 Saved image ' + (i + 1) + '/' + req.files.length + ':', file.filename);
-      
-      uploadedImages.push({
+  console.log('📸 Saving all images:', {
+    newFiles: req.files?.length || 0,
+    existingPaths: existingPaths.length,
+    slotIndices: slotIndices
+  });
+
+  const newImageData = [];
+  if (req.files && req.files.length > 0) {
+    for (let i = 0; i < req.files.length; i++) {
+      const file = req.files[i];
+
+      const oldPath = file.path;
+      const newPath = path.join(patientDir, file.filename);
+
+      safeFileMove(oldPath, newPath);
+
+      const savedPath = 'uploads/endoscopy-images/' + safeName + '/' + file.filename;
+
+      newImageData.push({
         filename: file.originalname,
-        path: 'uploads/endoscopy-images/' + file.filename,
+        path: savedPath,
         cloudinaryId: null,
-        taggedOrgan: tags[i] || '',
         caption: captions[i] || '',
-        isSelected: true
+        slotIndex: slotIndices[i] !== undefined ? slotIndices[i] : -1,
+        timestamp: new Date()
+      });
+
+      console.log('💾 Saved:', savedPath, 'slot:', slotIndices[i]);
+    }
+  }
+
+  const existingImageData = [];
+  for (let i = 0; i < existingPaths.length; i++) {
+    if (existingPaths[i]) {
+      const slotIdx = slotIndices[newImageData.length + i];
+      existingImageData.push({
+        filename: path.basename(existingPaths[i]),
+        path: existingPaths[i],
+        cloudinaryId: null,
+        caption: captions[newImageData.length + i] || '',
+        slotIndex: slotIdx !== undefined ? slotIdx : -1,
+        timestamp: new Date()
       });
     }
-
-    for (var j = 0; j < uploadedImages.length; j++) {
-      report.images.push(uploadedImages[j]);
-    }
-    await report.save();
-
-    res.json({ message: 'Images uploaded', images: uploadedImages });
-  } catch (error) {
-    console.error('Image Upload Error:', error);
-    res.status(400).json({ message: error.message });
   }
-});
+
+  const allImages = [...newImageData, ...existingImageData];
+
+  const slottedImages = allImages
+    .filter(img => img.slotIndex >= 0)
+    .sort((a, b) => a.slotIndex - b.slotIndex);
+
+  const poolImages = allImages.filter(img => img.slotIndex < 0);
+
+  report.images = slottedImages;
+  report.poolImages = poolImages;
+
+  await report.save();
+
+  console.log('✅ All images saved:', {
+    slotted: slottedImages.length,
+    pool: poolImages.length,
+    total: allImages.length
+  });
+
+  res.json({
+    message: 'All images saved',
+    slottedCount: slottedImages.length,
+    poolCount: poolImages.length,
+    images: slottedImages,
+    poolImages: poolImages
+  });
+}));
 
 // =================================================================
-// 🎥 VIDEO UPLOAD (Multer → Local Disk)
+// CAPTURE ROUTE (Base64)
 // =================================================================
-router.post('/:id/video', auth, upload.single('video'), async function(req, res) {
+router.post('/:id/capture', auth, asyncHandler(async function(req, res) {
+  const { image, tag, isPoolImage } = req.body;
+  if (!image) {
+    return res.status(400).json({ message: 'No image data provided' });
+  }
+
+  if (!isValidObjectId(req.params.id)) {
+    return res.status(400).json({ message: 'Invalid report ID format' });
+  }
+
+  const report = await Report.findById(req.params.id).populate('patient', 'name');
+  if (!report) {
+    return res.status(404).json({ message: 'Report not found' });
+  }
+
+  const uploadsDir = getUploadsDir(req);
+  const imagesDir = path.join(uploadsDir, 'endoscopy-images');
+  ensureDirectoryExists(imagesDir);
+
+  const patientName = report.patient?.name || 'Unknown';
+  const safeName = sanitizeFolderName(patientName);
+  const patientDir = path.join(imagesDir, safeName);
+  ensureDirectoryExists(patientDir);
+
+  // ✅ FIX 9: Safe base64 parsing
+  let buffer;
   try {
-    const report = await Report.findById(req.params.id);
-    if (!report) {
-      return res.status(404).json({ message: 'Report not found' });
+    const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+    buffer = Buffer.from(base64Data, 'base64');
+  } catch (e) {
+    return res.status(400).json({ message: 'Invalid image data format' });
+  }
+
+  const filename = 'endo-' + Date.now() + '-' + Math.round(Math.random() * 1E9) + '.jpg';
+  const filepath = path.join(patientDir, filename);
+
+  try {
+    fs.writeFileSync(filepath, buffer);
+  } catch (e) {
+    console.error('Failed to write image:', e);
+    return res.status(500).json({ message: 'Failed to save image' });
+  }
+
+  console.log('💾 Captured image saved:', safeName + '/' + filename);
+
+  const newImage = {
+    filename: filename,
+    path: 'uploads/endoscopy-images/' + safeName + '/' + filename,
+    cloudinaryId: null,
+    caption: '',
+    taggedOrgan: tag || '',
+    slotIndex: -1
+  };
+
+  if (isPoolImage !== false) {
+    report.poolImages.push(newImage);
+  } else {
+    report.images.push(newImage);
+  }
+
+  await report.save();
+
+  res.json({ message: 'Snapshot captured', image: newImage });
+}));
+
+// =================================================================
+// 🚀 SMART AUTO-SAVE: Generates paths for Electron to save the PDF
+// =================================================================
+router.post('/:id/save-pdf', auth, asyncHandler(async function(req, res) {
+  console.log('📄 Preparing auto-save paths for Electron PDF engine...');
+  
+  if (!isValidObjectId(req.params.id)) {
+    return res.status(400).json({ message: 'Invalid report ID format' });
+  }
+
+  const report = await Report.findById(req.params.id).populate('patient', 'name');
+  if (!report) return res.status(404).json({ message: 'Report not found' });
+
+  // 1. Calculate the exact hard disk folder path for this patient
+  const patientName = report.patient?.name || 'Unknown';
+  const safeName = sanitizeFolderName(patientName);
+  const uploadsDir = getUploadsDir(req);
+  const folderPath = path.join(uploadsDir, 'endoscopy-images', safeName);
+  ensureDirectoryExists(folderPath);
+
+  // 2. Create the PDF filename
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+  const fileName = `Report_${safeName}_${timestamp}.pdf`;
+  
+  // 3. Save the relative path to the database so the app remembers it
+  const relativePath = `uploads/endoscopy-images/${safeName}/${fileName}`;
+  report.pdfPath = relativePath;
+  report.pdfGeneratedAt = new Date();
+  await report.save();
+
+  // 4. Send the absolute path back to the frontend so Electron can save the file!
+  res.json({ 
+    success: true, 
+    folderPath: folderPath,
+    fileName: fileName
+  });
+}));
+
+
+
+// =================================================================
+// MULTIPLE IMAGE UPLOAD (Legacy)
+// =================================================================
+router.post('/:id/images', auth, upload.array('images', 10), handleMulterError, asyncHandler(async function(req, res) {
+  if (!isValidObjectId(req.params.id)) {
+    return res.status(400).json({ message: 'Invalid report ID format' });
+  }
+
+  const report = await Report.findById(req.params.id).populate('patient', 'name');
+  if (!report) {
+    return res.status(404).json({ message: 'Report not found' });
+  }
+
+  if (!req.files || req.files.length === 0) {
+    return res.status(400).json({ message: 'No image files provided' });
+  }
+
+  const patientName = report.patient?.name || 'Unknown';
+  const safeName = sanitizeFolderName(patientName);
+  const uploadsDir = getUploadsDir(req);
+  const patientDir = path.join(uploadsDir, 'endoscopy-images', safeName);
+  ensureDirectoryExists(patientDir);
+
+  let tags = [];
+  let captions = [];
+  let isPoolImages = req.body.isPoolImages === 'true';
+
+  try {
+    if (req.body.tags) {
+      tags = Array.isArray(req.body.tags) ? req.body.tags : String(req.body.tags).split(',');
     }
-
-    if (!req.file) {
-      return res.status(400).json({ message: 'No video file provided' });
+    if (req.body.captions) {
+      captions = Array.isArray(req.body.captions) ? req.body.captions : String(req.body.captions).split(',');
     }
+  } catch (e) {
+    console.error('Error parsing tags/captions:', e);
+  }
 
-    console.log('💾 Video saved:', req.file.filename);
+  const uploadedImages = [];
+  for (let i = 0; i < req.files.length; i++) {
+    const file = req.files[i];
 
-    const videoData = {
-      filename: req.file.originalname,
-      path: 'uploads/endoscopy-images/' + req.file.filename,
+    const oldPath = file.path;
+    const newPath = path.join(patientDir, file.filename);
+    safeFileMove(oldPath, newPath);
+
+    const savedPath = 'uploads/endoscopy-images/' + safeName + '/' + file.filename;
+    console.log('💾 Saved image ' + (i + 1) + '/' + req.files.length + ':', savedPath);
+
+    uploadedImages.push({
+      filename: file.originalname,
+      path: savedPath,
       cloudinaryId: null,
-      size: req.file.size
-    };
+      taggedOrgan: tags[i] || '',
+      caption: captions[i] || '',
+      slotIndex: isPoolImages ? -1 : i
+    });
+  }
 
-    report.videos.push(videoData);
+  if (isPoolImages) {
+    report.poolImages.push(...uploadedImages);
+  } else {
+    report.images.push(...uploadedImages);
+  }
+
+  await report.save();
+
+  res.json({ message: 'Images uploaded', images: uploadedImages });
+}));
+
+// =================================================================
+// VIDEO UPLOAD
+// =================================================================
+router.post('/:id/video', auth, upload.single('video'), handleMulterError, asyncHandler(async function(req, res) {
+  if (!isValidObjectId(req.params.id)) {
+    return res.status(400).json({ message: 'Invalid report ID format' });
+  }
+
+  const report = await Report.findById(req.params.id).populate('patient', 'name');
+  if (!report) {
+    return res.status(404).json({ message: 'Report not found' });
+  }
+
+  if (!req.file) {
+    return res.status(400).json({ message: 'No video file provided' });
+  }
+
+  const patientName = report.patient?.name || 'Unknown';
+  const safeName = sanitizeFolderName(patientName);
+  const uploadsDir = getUploadsDir(req);
+  const patientDir = path.join(uploadsDir, 'endoscopy-images', safeName);
+  ensureDirectoryExists(patientDir);
+
+  const oldPath = req.file.path;
+  const newPath = path.join(patientDir, req.file.filename);
+  safeFileMove(oldPath, newPath);
+
+  const savedPath = 'uploads/endoscopy-images/' + safeName + '/' + req.file.filename;
+  console.log('💾 Video saved:', savedPath);
+
+  const videoData = {
+    filename: req.file.originalname,
+    path: savedPath,
+    cloudinaryId: null,
+    size: req.file.size
+  };
+
+  report.videos.push(videoData);
+  await report.save();
+
+  res.json({ message: 'Video uploaded', video: videoData });
+}));
+
+// =================================================================
+// DELETE SINGLE IMAGE
+// =================================================================
+router.delete('/:id/images/:imageId', auth, asyncHandler(async function(req, res) {
+  if (!isValidObjectId(req.params.id)) {
+    return res.status(400).json({ message: 'Invalid report ID format' });
+  }
+
+  const report = await Report.findById(req.params.id);
+  if (!report) {
+    return res.status(404).json({ message: 'Report not found' });
+  }
+
+  let image = report.images.id(req.params.imageId);
+
+  if (!image) {
+    image = report.poolImages.id(req.params.imageId);
+  }
+
+  if (image) {
+    console.log('📁 Unlinked from report (file preserved):', image.path);
+    image.deleteOne();
     await report.save();
-
-    res.json({ message: 'Video uploaded', video: videoData });
-  } catch (error) {
-    console.error('Video Upload Error:', error);
-    res.status(500).json({ message: error.message });
   }
-});
+
+  res.json({ message: 'Image removed from report (file preserved in patient folder)' });
+}));
 
 // =================================================================
-// 🗑️ DELETE SINGLE IMAGE
+// DELETE ENTIRE REPORT
 // =================================================================
-router.delete('/:id/images/:imageId', auth, async function(req, res) {
-  try {
-    const report = await Report.findById(req.params.id);
-    if (!report) {
-      return res.status(404).json({ message: 'Report not found' });
-    }
-
-    const image = report.images.id(req.params.imageId);
-    if (image) {
-      const uploadsDir = getUploadsDir(req);
-      deleteLocalFile(image.path || image.filename, uploadsDir);
-      image.deleteOne();
-      await report.save();
-    }
-
-    res.json({ message: 'Image deleted' });
-  } catch (error) {
-    console.error('Delete Image Error:', error);
-    res.status(400).json({ message: error.message });
+router.delete('/:id', auth, asyncHandler(async function(req, res) {
+  if (!isValidObjectId(req.params.id)) {
+    return res.status(400).json({ message: 'Invalid report ID format' });
   }
-});
 
-// =================================================================
-// 🗑️ DELETE ENTIRE REPORT
-// =================================================================
-router.delete('/:id', auth, async function(req, res) {
-  try {
-    const report = await Report.findById(req.params.id);
-    if (!report) {
-      return res.status(404).json({ message: 'Report not found' });
-    }
-
-    const uploadsDir = getUploadsDir(req);
-
-    // Delete ALL images from Local Disk
-    if (report.images && report.images.length > 0) {
-      for (var i = 0; i < report.images.length; i++) {
-        deleteLocalFile(report.images[i].path || report.images[i].filename, uploadsDir);
-      }
-    }
-
-    // Delete ALL videos from Local Disk
-    if (report.videos && report.videos.length > 0) {
-      for (var j = 0; j < report.videos.length; j++) {
-        deleteLocalFile(report.videos[j].path || report.videos[j].filename, uploadsDir);
-      }
-    }
-
-    await Report.findByIdAndDelete(req.params.id);
-    console.log('✅ Report deleted:', req.params.id);
-
-    res.json({ message: 'Report and all media deleted' });
-  } catch (error) {
-    console.error('Delete Report Error:', error);
-    res.status(500).json({ message: error.message });
+  const report = await Report.findById(req.params.id);
+  if (!report) {
+    return res.status(404).json({ message: 'Report not found' });
   }
+
+  const totalImages = (report.images?.length || 0) + (report.poolImages?.length || 0);
+  if (totalImages > 0) {
+    console.log('📁 Preserving', totalImages, 'image(s) in patient folder');
+  }
+  if (report.videos && report.videos.length > 0) {
+    console.log('📁 Preserving', report.videos.length, 'video(s) in patient folder');
+  }
+
+  await Report.findByIdAndDelete(req.params.id);
+  console.log('✅ Report deleted (media files preserved):', req.params.id);
+
+  res.json({ message: 'Report deleted (media files preserved in patient folder)' });
+}));
+
+// ✅ FIX 10: Add router-level error handler
+router.use((err, req, res, next) => {
+  console.error('❌ Report route error:', err.message);
+
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ message: 'File too large' });
+    }
+    return res.status(400).json({ message: err.message });
+  }
+
+  if (err.name === 'CastError') {
+    return res.status(400).json({ message: 'Invalid ID format' });
+  }
+
+  if (err.name === 'ValidationError') {
+    const messages = Object.values(err.errors).map(e => e.message);
+    return res.status(400).json({ message: messages.join(', ') });
+  }
+
+  res.status(500).json({ message: 'Report operation failed' });
 });
 
 module.exports = router;

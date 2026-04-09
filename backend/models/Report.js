@@ -34,6 +34,16 @@ const complicationSchema = new mongoose.Schema({
   management: String
 });
 
+const imageSchema = new mongoose.Schema({
+  filename: String,
+  path: String,
+  cloudinaryId: String,
+  taggedOrgan: String,
+  caption: String,
+  slotIndex: { type: Number, default: -1 },
+  timestamp: { type: Date, default: Date.now }
+});
+
 const reportSchema = new mongoose.Schema({
   reportId: { type: String, unique: true },
   patient: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', required: true },
@@ -107,21 +117,13 @@ const reportSchema = new mongoose.Schema({
     withdrawalTime: String
   },
 
-  // ✅ UPDATED: Added cloudinaryId for deletion
-  images: [{
-    filename: String,
-    path: String,                // Full Cloudinary URL (or legacy local path)
-    cloudinaryId: String,        // ✅ NEW: Cloudinary public_id for deletion
-    taggedOrgan: String,
-    caption: String,
-    timestamp: { type: Date, default: Date.now }
-  }],
+  images: [imageSchema],
+  poolImages: [imageSchema],
 
-  // ✅ UPDATED: Added cloudinaryId for videos
   videos: [{
     filename: String,
-    path: String,                // Full Cloudinary URL (or legacy local path)
-    cloudinaryId: String,        // ✅ NEW: Cloudinary public_id for deletion
+    path: String,
+    cloudinaryId: String,
     size: Number,
     duration: Number,
     uploadedAt: { type: Date, default: Date.now }
@@ -132,6 +134,9 @@ const reportSchema = new mongoose.Schema({
   recommendations: String,
   followUp: String,
   comments: String,
+
+  pdfPath: String,
+  pdfGeneratedAt: Date,
 
   status: {
     type: String,
@@ -145,12 +150,74 @@ const reportSchema = new mongoose.Schema({
   lastModifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
-// Auto-generate Report ID
+// ✅ FIXED: Generate unique reportId using timestamp + random
 reportSchema.pre('save', async function (next) {
   if (!this.reportId) {
-    const count = await mongoose.model('Report').countDocuments();
     const year = new Date().getFullYear();
-    this.reportId = `RPT${year}${String(count + 1).padStart(6, '0')}`;
+    
+    let reportId;
+    let isUnique = false;
+    let attempts = 0;
+    
+    while (!isUnique && attempts < 10) {
+      attempts++;
+      
+      // ✅ Use highest existing reportId + 1 instead of count
+      try {
+        const lastReport = await mongoose.model('Report')
+          .findOne({ reportId: new RegExp(`^RPT${year}`) })
+          .sort({ reportId: -1 })
+          .select('reportId')
+          .lean();
+
+        let nextNumber = 1;
+        
+        if (lastReport && lastReport.reportId) {
+          // Extract number from last reportId e.g. RPT2026000004 -> 4
+          const lastNumber = parseInt(lastReport.reportId.replace(`RPT${year}`, ''));
+          if (!isNaN(lastNumber)) {
+            nextNumber = lastNumber + 1;
+          }
+        }
+
+        reportId = `RPT${year}${String(nextNumber).padStart(6, '0')}`;
+
+        // ✅ Double check it doesn't exist
+        const exists = await mongoose.model('Report')
+          .findOne({ reportId })
+          .select('_id')
+          .lean();
+
+        if (!exists) {
+          isUnique = true;
+        } else {
+          // ✅ If exists, add random suffix and try again
+          reportId = `RPT${year}${String(nextNumber + attempts).padStart(6, '0')}`;
+          const exists2 = await mongoose.model('Report')
+            .findOne({ reportId })
+            .select('_id')
+            .lean();
+          if (!exists2) {
+            isUnique = true;
+          }
+        }
+      } catch (e) {
+        // ✅ Fallback: use timestamp-based ID
+        const timestamp = Date.now().toString().slice(-6);
+        reportId = `RPT${year}${timestamp}`;
+        isUnique = true;
+      }
+    }
+
+    // ✅ Final fallback if all attempts fail
+    if (!isUnique || !reportId) {
+      const timestamp = Date.now().toString().slice(-6);
+      const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+      reportId = `RPT${year}T${timestamp}${random}`;
+    }
+
+    this.reportId = reportId;
+    console.log(`📋 Generated Report ID: ${reportId}`);
   }
   next();
 });
